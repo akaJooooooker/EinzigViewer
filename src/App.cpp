@@ -1,7 +1,8 @@
 #include "App.h"
 
+#include "ImageExporter.h"
 #include "NullImageEnhancer.h"
-#if EIDOLYX_WITH_RTX
+#if EINZIGVIEWER_WITH_RTX
 #include "RtxImageEnhancer.h"
 #endif
 
@@ -12,17 +13,20 @@
 #include <shobjidl.h>
 
 #include <algorithm>
+#include <cerrno>
 #include <cmath>
+#include <cwchar>
 #include <exception>
+#include <limits>
 #include <sstream>
 #include <vector>
 
 using Microsoft::WRL::ComPtr;
 
 namespace {
-constexpr wchar_t WindowClassName[] = L"Eidolyx.MainWindow";
-constexpr wchar_t HdrSurfaceClassName[] = L"Eidolyx.HdrSurface";
-constexpr wchar_t ProductName[] = L"Eidolyx";
+constexpr wchar_t WindowClassName[] = L"EinzigViewer.MainWindow";
+constexpr wchar_t HdrSurfaceClassName[] = L"EinzigViewer.HdrSurface";
+constexpr wchar_t ProductName[] = L"EinzigViewer";
 constexpr WORD AppIconResource = 101;
 constexpr UINT_PTR NoticeTimer = 1;
 constexpr UINT_PTR EnhancementResizeTimer = 2;
@@ -33,6 +37,8 @@ constexpr int LayoutSettingsVersion = 4;
 
 enum Command : UINT {
     CommandOpen = 100,
+    CommandExportPng,
+    CommandResizeExportPng,
     CommandPrevious,
     CommandNext,
     CommandFit,
@@ -77,7 +83,7 @@ D2D1_RECT_F ClientRectF(const HWND window) {
 }
 
 App::App() : cache_(768ULL * 1024ULL * 1024ULL) {
-#if EIDOLYX_WITH_RTX
+#if EINZIGVIEWER_WITH_RTX
     enhancer_ = std::make_unique<RtxImageEnhancer>();
 #else
     enhancer_ = std::make_unique<NullImageEnhancer>();
@@ -89,7 +95,7 @@ App::~App() = default;
 int App::Run(const HINSTANCE instance, const std::filesystem::path& initialFile) {
     if (!CreateDeviceIndependentResources() || !CreateMainWindow(instance)) {
         MessageBoxW(nullptr,
-            L"無法初始化 Eidolyx。\n\nEidolyx could not be initialized.",
+            L"無法初始化 EinzigViewer。\n\nEinzigViewer could not be initialized.",
             ProductName, MB_OK | MB_ICONERROR);
         return 1;
     }
@@ -167,8 +173,8 @@ bool App::CreateHdrSurface(std::wstring& error) {
         WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
         0, 0, 1, 1, window_, nullptr, instance, nullptr);
     if (!hdrSurfaceWindow_) {
-        error = L"無法在 Eidolyx 主視窗建立 HDR 顯示區。 / "
-                L"Could not create the HDR surface inside the Eidolyx main window.";
+        error = L"無法在 EinzigViewer 主視窗建立 HDR 顯示區。 / "
+                L"Could not create the HDR surface inside the EinzigViewer main window.";
         return false;
     }
     UpdateHdrSurfaceBounds();
@@ -191,7 +197,7 @@ void App::UpdateHdrSurfaceBounds() {
     const int height = std::max(1L, client.bottom - client.top - top - bottom);
     SetWindowPos(hdrSurfaceWindow_, HWND_TOP, 0, top, width, height,
         SWP_NOACTIVATE | SWP_SHOWWINDOW);
-#if EIDOLYX_WITH_RTX
+#if EINZIGVIEWER_WITH_RTX
     if (hdrPresenter_) hdrPresenter_->Invalidate();
 #endif
 }
@@ -212,6 +218,11 @@ HMENU App::CreateApplicationMenu() {
 
     AppendMenuW(fileMenu, MF_STRING, CommandOpen,
         UiText(english, L"開啟圖片…\tO", L"Open image…\tO"));
+    AppendMenuW(fileMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(fileMenu, MF_STRING, CommandExportPng,
+        UiText(english, L"轉存 PNG…\tCtrl+S", L"Export PNG…\tCtrl+S"));
+    AppendMenuW(fileMenu, MF_STRING, CommandResizeExportPng,
+        UiText(english, L"縮小並轉存 PNG…\tCtrl+Shift+S", L"Downscale and export PNG…\tCtrl+Shift+S"));
     AppendMenuW(fileMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(fileMenu, MF_STRING, CommandExit,
         UiText(english, L"結束\tAlt+F4", L"Exit\tAlt+F4"));
@@ -279,7 +290,7 @@ HMENU App::CreateApplicationMenu() {
         UiText(english, L"語言", L"Language"));
     AppendMenuW(helpMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(helpMenu, MF_STRING, CommandAbout,
-        UiText(english, L"關於 Eidolyx…", L"About Eidolyx…"));
+        UiText(english, L"關於 EinzigViewer…", L"About EinzigViewer…"));
 
     AppendMenuW(root, MF_POPUP, reinterpret_cast<UINT_PTR>(fileMenu),
         UiText(english, L"檔案(&F)", L"File(&F)"));
@@ -356,10 +367,10 @@ void App::SetLanguage(const UiLanguage language) {
 void App::ShowRtxError(const std::wstring& details) {
     std::wstring message = IsEnglish()
         ? L"RTX Video Enhancement is unavailable on this computer.\n\n"
-          L"Eidolyx will continue in normal image-viewing mode and will not close.\n"
+          L"EinzigViewer will continue in normal image-viewing mode and will not close.\n"
           L"Verify the NVIDIA RTX GPU, compatible driver, and the required runtime DLL files."
         : L"這台電腦目前無法使用 RTX 視訊增強。\n\n"
-          L"Eidolyx 會繼續以一般圖片檢視模式運作，不會因此關閉。\n"
+          L"EinzigViewer 會繼續以一般圖片檢視模式運作，不會因此關閉。\n"
           L"請確認 NVIDIA RTX 顯示卡、相容驅動程式與必要的 runtime DLL。";
     if (!details.empty()) {
         message += L"\n\n";
@@ -435,12 +446,12 @@ void App::Paint() {
             rendered = PaintHdr(error);
         } catch (const std::exception& exception) {
             error = L"HDR 呈現發生例外，已安全返回一般顯示。 / "
-                    L"HDR presentation raised an exception; Eidolyx safely returned to normal display. ";
+                    L"HDR presentation raised an exception; EinzigViewer safely returned to normal display. ";
             const std::string details = exception.what();
             error.append(details.begin(), details.end());
         } catch (...) {
             error = L"HDR 呈現發生未知錯誤，已安全返回一般顯示。 / "
-                    L"HDR presentation failed unexpectedly; Eidolyx safely returned to normal display.";
+                    L"HDR presentation failed unexpectedly; EinzigViewer safely returned to normal display.";
         }
         EndPaint(window_, &paint);
         if (!rendered) {
@@ -524,7 +535,10 @@ void App::DrawOverlay(const D2D1_SIZE_F& size) {
         }
         details << ViewModeName(viewMode_, english) << L"  ·  "
                 << static_cast<int>(std::lround(CurrentScale(scaleSize) * 100.0F)) << L"%";
-        if (currentImage_) details << L"  ·  " << currentImage_->width << L" × " << currentImage_->height;
+        if (currentImage_) {
+            details << L"  ·  " << currentImage_->width << L" × " << currentImage_->height;
+            if (currentImage_->hdrToneMappedToSdr) details << L"  ·  JXR HDR → SDR/sRGB";
+        }
         if (hdrEnabled_) {
             static constexpr const wchar_t* chinesePresets[]{L"標準", L"鮮明", L"柔和"};
             static constexpr const wchar_t* englishPresets[]{L"Standard", L"Vivid", L"Gentle"};
@@ -559,7 +573,7 @@ void App::ShowOpenDialog() {
     ComPtr<IFileOpenDialog> dialog;
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return;
     const COMDLG_FILTERSPEC filters[] = {
-        {UiText(IsEnglish(), L"圖片", L"Images"), L"*.jpg;*.jpeg;*.jpe;*.png;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.heic;*.heif;*.avif;*.jxl;*.ico;*.jxr"},
+        {UiText(IsEnglish(), L"圖片", L"Images"), L"*.jpg;*.jpeg;*.jpe;*.png;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.heic;*.heif;*.avif;*.jxl;*.ico;*.jxr;*.wdp;*.hdp"},
         {UiText(IsEnglish(), L"所有檔案", L"All files"), L"*.*"}
     };
     dialog->SetFileTypes(static_cast<UINT>(std::size(filters)), filters);
@@ -571,6 +585,98 @@ void App::ShowOpenDialog() {
     PWSTR path = nullptr;
     if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)) && path) OpenImage(path);
     CoTaskMemFree(path);
+}
+
+void App::ShowExportPngDialog(const bool resize) {
+    if (!currentImage_) {
+        SetNotice(UiText(IsEnglish(), L"請先開啟並等待圖片載入完成。", L"Open an image and wait for it to finish loading first."), 5000);
+        return;
+    }
+
+    const std::uint32_t sourceLongEdge = std::max(currentImage_->width, currentImage_->height);
+    if (resize && sourceLongEdge <= 1) {
+        SetNotice(UiText(IsEnglish(), L"這張圖片已無法再縮小。", L"This image cannot be downscaled further."), 5000);
+        return;
+    }
+
+    ComPtr<IFileSaveDialog> dialog;
+    if (FAILED(CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return;
+    const COMDLG_FILTERSPEC filters[] = {{L"PNG", L"*.png"}};
+    dialog->SetFileTypes(static_cast<UINT>(std::size(filters)), filters);
+    dialog->SetDefaultExtension(L"png");
+    dialog->SetTitle(UiText(IsEnglish(),
+        resize ? L"縮小並轉存 PNG" : L"轉存 PNG",
+        resize ? L"Downscale and export PNG" : L"Export PNG"));
+    DWORD options = 0;
+    if (SUCCEEDED(dialog->GetOptions(&options))) {
+        dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_OVERWRITEPROMPT);
+    }
+
+    std::wstring suggestedName = folder_.Current().stem().wstring();
+    suggestedName += resize ? L"_small.png" :
+        (currentImage_->sourceWasJpegXr ? L"_sdr.png" : L"_export.png");
+    dialog->SetFileName(suggestedName.c_str());
+
+    constexpr DWORD SourceSizeControl = 4200;
+    constexpr DWORD LongEdgeLabelControl = 4201;
+    constexpr DWORD LongEdgeEditControl = 4202;
+    ComPtr<IFileDialogCustomize> customize;
+    if (resize && SUCCEEDED(dialog.As(&customize))) {
+        const std::wstring sourceSize = std::wstring(UiText(IsEnglish(), L"原始尺寸：", L"Source size: ")) +
+            std::to_wstring(currentImage_->width) + L" × " + std::to_wstring(currentImage_->height);
+        customize->AddText(SourceSizeControl, sourceSize.c_str());
+        customize->AddText(LongEdgeLabelControl, UiText(IsEnglish(),
+            L"輸出長邊像素（自動保持比例）：", L"Output long edge in pixels (aspect ratio is preserved):"));
+        const auto defaultLongEdge = std::max<std::uint32_t>(1, sourceLongEdge / 2);
+        const auto defaultText = std::to_wstring(defaultLongEdge);
+        customize->AddEditBox(LongEdgeEditControl, defaultText.c_str());
+    }
+
+    if (FAILED(dialog->Show(window_))) return;
+
+    std::uint32_t requestedLongEdge = 0;
+    if (resize) {
+        PWSTR value = nullptr;
+        if (!customize || FAILED(customize->GetEditBoxText(LongEdgeEditControl, &value)) || !value) return;
+        errno = 0;
+        wchar_t* end = nullptr;
+        const unsigned long parsed = std::wcstoul(value, &end, 10);
+        const bool valid = errno == 0 && end && end != value && *end == L'\0' && parsed > 0 &&
+            parsed < sourceLongEdge && parsed <= std::numeric_limits<std::uint32_t>::max();
+        CoTaskMemFree(value);
+        if (!valid) {
+            MessageBoxW(window_, UiText(IsEnglish(),
+                L"請輸入大於 0 且小於原始長邊的整數像素值。",
+                L"Enter a whole-number pixel value greater than 0 and smaller than the source long edge."),
+                ProductName, MB_OK | MB_ICONWARNING);
+            return;
+        }
+        requestedLongEdge = static_cast<std::uint32_t>(parsed);
+    }
+
+    ComPtr<IShellItem> item;
+    if (FAILED(dialog->GetResult(&item))) return;
+    PWSTR path = nullptr;
+    if (FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)) || !path) return;
+    const std::filesystem::path outputPath(path);
+    CoTaskMemFree(path);
+
+    std::wstring error;
+    if (!ImageExporter::SavePng(*currentImage_, outputPath, requestedLongEdge, error)) {
+        const std::wstring message = std::wstring(UiText(IsEnglish(), L"PNG 儲存失敗：\n\n", L"PNG export failed:\n\n")) + error;
+        MessageBoxW(window_, message.c_str(), ProductName, MB_OK | MB_ICONERROR);
+        return;
+    }
+
+    std::uint32_t outputWidth = currentImage_->width;
+    std::uint32_t outputHeight = currentImage_->height;
+    if (requestedLongEdge > 0) {
+        const double scale = static_cast<double>(requestedLongEdge) / static_cast<double>(sourceLongEdge);
+        outputWidth = std::max<std::uint32_t>(1, static_cast<std::uint32_t>(std::llround(currentImage_->width * scale)));
+        outputHeight = std::max<std::uint32_t>(1, static_cast<std::uint32_t>(std::llround(currentImage_->height * scale)));
+    }
+    SetNotice(std::wstring(UiText(IsEnglish(), L"已儲存 PNG：", L"PNG saved: ")) +
+        std::to_wstring(outputWidth) + L" × " + std::to_wstring(outputHeight), 5000);
 }
 
 bool App::OpenImage(const std::filesystem::path& file) {
@@ -675,7 +781,7 @@ void App::ApplyCurrentIfReady() {
 
 void App::RequestEnhancement() {
     if (!enhancementEnabled_ || !enhancementWorker_ || !currentImage_) return;
-#if EIDOLYX_WITH_RTX
+#if EINZIGVIEWER_WITH_RTX
     if (hdrRetirement_ && !hdrRetirement_->load(std::memory_order_acquire)) {
         enhancementInProgress_ = true;
         SetTimer(window_, HdrRetirementTimer, 100, nullptr);
@@ -751,7 +857,7 @@ void App::ToggleEnhancement() {
     if (enhancementEnabled_) {
         enhancementEnabled_ = false;
         enhancementInProgress_ = false;
-#if EIDOLYX_WITH_RTX
+#if EINZIGVIEWER_WITH_RTX
         KillTimer(window_, HdrRetirementTimer);
 #endif
         enhancedImage_.reset();
@@ -779,7 +885,7 @@ void App::ToggleEnhancement() {
 
 void App::RecreateEnhancementBackend() {
     enhancementWorker_.reset();
-#if EIDOLYX_WITH_RTX
+#if EINZIGVIEWER_WITH_RTX
     enhancer_ = std::make_unique<RtxImageEnhancer>();
 #else
     enhancer_ = std::make_unique<NullImageEnhancer>();
@@ -802,7 +908,7 @@ void App::ToggleHdrMode() {
             L"Open an image before starting RTX Video Enhancement (VSR + HDR)."), 5000);
         return;
     }
-#if EIDOLYX_WITH_RTX
+#if EINZIGVIEWER_WITH_RTX
     if (hdrRetirement_ && !hdrRetirement_->load(std::memory_order_acquire)) {
         SetNotice(UiText(IsEnglish(),
             L"上一個 RTX HDR 工作正在結束，完成後再試一次。",
@@ -813,7 +919,7 @@ void App::ToggleHdrMode() {
     wchar_t executablePath[32768]{};
     if (GetModuleFileNameW(nullptr, executablePath, static_cast<DWORD>(std::size(executablePath))) == 0) {
         ShowRtxError(UiText(IsEnglish(),
-            L"找不到 Eidolyx 程式路徑。", L"The Eidolyx executable path could not be found."));
+            L"找不到 EinzigViewer 程式路徑。", L"The EinzigViewer executable path could not be found."));
         return;
     }
     const auto applicationDirectory = std::filesystem::path(executablePath).parent_path();
@@ -857,8 +963,8 @@ void App::ToggleHdrMode() {
     UpdateWindowTitle();
     UpdateMenuChecks();
     SetNotice(UiText(IsEnglish(),
-        L"RTX HDR10 已在 Eidolyx 主視窗啟用；按 H 可返回一般顯示。",
-        L"RTX HDR10 is active in the Eidolyx main window; press H to return to normal presentation."), 5000);
+        L"RTX HDR10 已在 EinzigViewer 主視窗啟用；按 H 可返回一般顯示。",
+        L"RTX HDR10 is active in the EinzigViewer main window; press H to return to normal presentation."), 5000);
     InvalidateRect(window_, nullptr, FALSE);
 #else
     ShowRtxError(UiText(IsEnglish(),
@@ -869,11 +975,11 @@ void App::ToggleHdrMode() {
 
 void App::DisableHdrMode(const bool restoreSdrBackend) {
     if (!hdrEnabled_
-#if EIDOLYX_WITH_RTX
+#if EINZIGVIEWER_WITH_RTX
         && !hdrPresenter_
 #endif
     ) return;
-#if EIDOLYX_WITH_RTX
+#if EINZIGVIEWER_WITH_RTX
     if (hdrPresenter_) {
         hdrRetirement_ = hdrPresenter_->Shutdown();
         hdrPresenter_.reset();
@@ -894,7 +1000,7 @@ void App::DisableHdrMode(const bool restoreSdrBackend) {
 
 void App::SetHdrPreset(const int preset) {
     hdrPreset_ = std::clamp(preset, 0, 2);
-#if EIDOLYX_WITH_RTX
+#if EINZIGVIEWER_WITH_RTX
     if (hdrPresenter_) hdrPresenter_->Invalidate();
 #endif
     UpdateMenuChecks();
@@ -903,7 +1009,7 @@ void App::SetHdrPreset(const int preset) {
 }
 
 bool App::PaintHdr(std::wstring& error) {
-#if EIDOLYX_WITH_RTX
+#if EINZIGVIEWER_WITH_RTX
     if (!hdrEnabled_ || !hdrPresenter_) return false;
     RECT client{};
     GetClientRect(hdrSurfaceWindow_, &client);
@@ -951,7 +1057,7 @@ void App::ClampHdrZoom() {
 
 void App::UploadCurrentBitmap() {
     bitmap_.Reset();
-#if EIDOLYX_WITH_RTX
+#if EINZIGVIEWER_WITH_RTX
     if (hdrEnabled_) {
         if (hdrPresenter_) hdrPresenter_->Invalidate();
         return;
@@ -1122,6 +1228,10 @@ void App::ShowContextMenu(const POINT screenPoint) {
     }
     AppendMenuW(menu, MF_STRING, CommandOpen,
         UiText(english, L"開啟圖片…\tO", L"Open image…\tO"));
+    AppendMenuW(menu, MF_STRING, CommandExportPng,
+        UiText(english, L"轉存 PNG…\tCtrl+S", L"Export PNG…\tCtrl+S"));
+    AppendMenuW(menu, MF_STRING, CommandResizeExportPng,
+        UiText(english, L"縮小並轉存 PNG…", L"Downscale and export PNG…"));
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, CommandPrevious,
         UiText(english, L"上一張\t←", L"Previous\t←"));
@@ -1197,7 +1307,7 @@ std::filesystem::path App::SettingsPath() const {
     if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &localAppData))) return {};
     std::filesystem::path path(localAppData);
     CoTaskMemFree(localAppData);
-    return path / L"Eidolyx" / L"settings.ini";
+    return path / L"EinzigViewer" / L"settings.ini";
 }
 
 void App::LoadSettings() {
@@ -1205,9 +1315,15 @@ void App::LoadSettings() {
     if (path.empty()) return;
     std::error_code settingsError;
     if (!std::filesystem::exists(path, settingsError)) {
-        const auto legacyPath = path.parent_path().parent_path() / L"MiraView" / L"settings.ini";
-        settingsError.clear();
-        if (std::filesystem::exists(legacyPath, settingsError)) path = legacyPath;
+        const auto settingsRoot = path.parent_path().parent_path();
+        for (const wchar_t* legacyName : {L"Eidolyx", L"MiraView"}) {
+            const auto legacyPath = settingsRoot / legacyName / L"settings.ini";
+            settingsError.clear();
+            if (std::filesystem::exists(legacyPath, settingsError)) {
+                path = legacyPath;
+                break;
+            }
+        }
     }
     const auto native = path.wstring();
     showInfo_ = GetPrivateProfileIntW(L"view", L"showInfo", 1, native.c_str()) != 0;
@@ -1279,7 +1395,7 @@ LRESULT CALLBACK App::WindowProcedure(const HWND window, const UINT message, con
 LRESULT CALLBACK App::HdrSurfaceProcedure(
     const HWND window, const UINT message, const WPARAM wParam, const LPARAM lParam) {
     switch (message) {
-#if EIDOLYX_WITH_RTX
+#if EINZIGVIEWER_WITH_RTX
     case RtxHdrPresenter::FrameReadyMessage:
         if (const HWND parent = GetParent(window); parent && IsWindow(parent)) {
             PostMessageW(parent, message, wParam, lParam);
@@ -1328,7 +1444,7 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
     case EnhancementWorker::EnhancementReadyMessage:
         ApplyEnhancementResult();
         return 0;
-#if EIDOLYX_WITH_RTX
+#if EINZIGVIEWER_WITH_RTX
     case RtxHdrPresenter::FrameReadyMessage:
         if (hdrEnabled_) InvalidateRect(window_, nullptr, FALSE);
         return 0;
@@ -1412,6 +1528,12 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
             ZoomAt(1.0F / 1.15F, POINT{rectangle.right / 2, rectangle.bottom / 2}); return 0;
         }
         case L'O': ShowOpenDialog(); return 0;
+        case L'S':
+            if ((GetKeyState(VK_CONTROL) & 0x8000) != 0) {
+                ShowExportPngDialog((GetKeyState(VK_SHIFT) & 0x8000) != 0);
+                return 0;
+            }
+            break;
         case L'I':
             showInfo_ = !showInfo_;
             if (hdrEnabled_) UpdateHdrSurfaceBounds();
@@ -1459,6 +1581,8 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
     case WM_COMMAND:
         switch (LOWORD(wParam)) {
         case CommandOpen: ShowOpenDialog(); break;
+        case CommandExportPng: ShowExportPngDialog(false); break;
+        case CommandResizeExportPng: ShowExportPngDialog(true); break;
         case CommandPrevious: Navigate(-1); break;
         case CommandNext: Navigate(1); break;
         case CommandFirst: if (!folder_.Empty()) NavigateTo(0); break;
@@ -1485,10 +1609,11 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         case CommandLanguageEnglish: SetLanguage(UiLanguage::English); break;
         case CommandAbout:
             MessageBoxW(window_,
-                L"Eidolyx 0.5.0 (RTX VSR + HDR)\n\n"
+                L"EinzigViewer 0.6.0 (RTX VSR + HDR)\n\n"
                 L"【繁體中文】\n"
                 L"針對漫畫文字與圖片放大的原生 Windows 圖片檢視器，支援 NVIDIA RTX Video VSR 與 HDR。\n"
-                L"Eidolyx 是由希臘文 eidolon（影像）與拉丁文 lux（光）延伸的新造字，不是縮寫。\n"
+                L"EinzigViewer 的 Einzig 取自德文「獨特／唯一」，Viewer 表示圖片檢視器。\n"
+                L"支援高精度 HDR JXR 解碼、HDR → SDR/sRGB 色調映射、PNG 轉存與保持比例縮小。\n"
                 L"VSR 會依目前顯示尺寸輸出，最高單邊 7680 像素。\n"
                 L"使用 NVIDIA RTX Video SDK 1.1。\n"
                 L"按 H 可在原本主視窗切換 VSR → TrueHDR 10-bit 顯示。\n"
@@ -1498,7 +1623,8 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
                 L"本專案不代表受到 NVIDIA 贊助或背書。\n\n"
                 L"[English]\n"
                 L"Native Windows image viewer for enlarged comic text and images, with NVIDIA RTX Video VSR and HDR.\n"
-                L"Eidolyx is a coined name derived from the Greek eidolon (image) and Latin lux (light); it is not an acronym.\n"
+                L"Einzig means unique in German; Viewer describes the application's purpose.\n"
+                L"Supports high-precision HDR JPEG XR decoding, HDR-to-SDR/sRGB tone mapping, PNG export, and aspect-preserving downscaling.\n"
                 L"VSR output follows the current display size, up to 7680 pixels per side.\n"
                 L"Built with NVIDIA RTX Video SDK 1.1.\n"
                 L"Press H to toggle VSR to TrueHDR 10-bit output in the original main window.\n"
@@ -1506,7 +1632,7 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
                 L"F11 fullscreen hides an idle cursor after 3 seconds; right-click selects the HDR mode.\n"
                 L"Hold C to compare the original image.\n"
                 L"This project is not sponsored or endorsed by NVIDIA.",
-                L"關於 Eidolyx / About Eidolyx", MB_OK | MB_ICONINFORMATION);
+                L"關於 EinzigViewer / About EinzigViewer", MB_OK | MB_ICONINFORMATION);
             break;
         case CommandExit: SendMessageW(window_, WM_CLOSE, 0, 0); break;
         default: break;
@@ -1517,7 +1643,7 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
             HideFullscreenCursorIfEligible();
             return 0;
         }
-#if EIDOLYX_WITH_RTX
+#if EINZIGVIEWER_WITH_RTX
         if (wParam == HdrRetirementTimer) {
             if (!hdrRetirement_ || hdrRetirement_->load(std::memory_order_acquire)) {
                 KillTimer(window_, HdrRetirementTimer);
@@ -1547,7 +1673,7 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         KillTimer(window_, FullscreenCursorTimer);
         ShowFullscreenCursor();
         cache_.SetNotificationWindow(nullptr);
-#if EIDOLYX_WITH_RTX
+#if EINZIGVIEWER_WITH_RTX
         if (hdrPresenter_) {
             (void)hdrPresenter_->Shutdown();
             hdrPresenter_.reset();

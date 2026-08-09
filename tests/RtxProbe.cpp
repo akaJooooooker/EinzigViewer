@@ -12,7 +12,7 @@
 namespace {
 ImageData CreateTestImage() {
     ImageData image;
-    image.path = L"Eidolyx RTX probe";
+    image.path = L"EinzigViewer RTX probe";
     image.width = 960;
     image.height = 540;
     image.stride = image.width * 4U;

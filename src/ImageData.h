@@ -11,6 +11,8 @@ struct ImageData {
     std::uint32_t height = 0;
     std::uint32_t stride = 0;
     std::vector<std::byte> pixels;
+    bool sourceWasJpegXr = false;
+    bool hdrToneMappedToSdr = false;
 
     [[nodiscard]] std::size_t ByteSize() const noexcept {
         return pixels.size();

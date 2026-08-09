@@ -13,7 +13,7 @@
 namespace {
 ImageData CreateTestImage() {
     ImageData image;
-    image.path = L"Eidolyx TrueHDR probe";
+    image.path = L"EinzigViewer TrueHDR probe";
     image.width = 640;
     image.height = 360;
     image.stride = image.width * 4U;

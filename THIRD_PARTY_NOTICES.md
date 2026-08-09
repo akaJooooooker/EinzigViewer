@@ -2,11 +2,11 @@
 
 ## NVIDIA RTX Video SDK 1.1
 
-Eidolyx 的可選 RTX 增強功能使用 NVIDIA RTX Video SDK 1.1／NGX VSR 與 TrueHDR。
+EinzigViewer 的可選 RTX 增強功能使用 NVIDIA RTX Video SDK 1.1／NGX VSR 與 TrueHDR。
 
 **This software contains source code provided by NVIDIA Corporation.**
 
-NVIDIA RTX Video SDK、NGX headers、import libraries、`nvngx_vsr.dll` 與 `nvngx_truehdr.dll` 皆為 NVIDIA Corporation 及其關係企業的專有軟體，受隨 SDK 提供的 **NVIDIA RTX SDKs LICENSE** 與 RTX supplement 約束。它們不因與 Eidolyx 一起建置或散布而改採本專案的授權。
+NVIDIA RTX Video SDK、NGX headers、import libraries、`nvngx_vsr.dll` 與 `nvngx_truehdr.dll` 皆為 NVIDIA Corporation 及其關係企業的專有軟體，受隨 SDK 提供的 **NVIDIA RTX SDKs LICENSE** 與 RTX supplement 約束。它們不因與 EinzigViewer 一起建置或散布而改採本專案的授權。
 
 專案不提交或獨立散布 SDK 套件；開發者需自行從 NVIDIA 取得 SDK 並接受其條款。應用程式 Release 版只依授權所允許的方式併入 VSR／TrueHDR object code runtime，且必須提供實質的圖片檢視功能。
 

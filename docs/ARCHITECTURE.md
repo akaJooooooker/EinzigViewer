@@ -27,7 +27,8 @@ UI 執行緒上傳目前 BGRA 圖片至 Direct2D bitmap
 ## 模組責任
 
 - `FolderModel`：資料夾索引、格式篩選、自然排序、目前位置。
-- `WicDecoder`：每工作執行緒獨立初始化 COM/WIC、EXIF 方向、統一輸出 premultiplied BGRA。
+- `WicDecoder`：每工作執行緒獨立初始化 COM/WIC、EXIF 方向；一般格式輸出 premultiplied BGRA，extended-RGB JXR 則先保留 128bpp float scRGB，再做亮度保持的 HDR → SDR/sRGB 色調映射。
+- `ImageExporter`：將完整解碼後的原圖輸出為帶 sRGB 標記的 PNG；可用 WIC Fant interpolation 依目標長邊保持比例縮小，且不接受放大要求。
 - `ImageCache`：優先佇列、背景工作、錯誤狀態、LRU 記憶體上限、鄰近頁固定保留。
 - `App`：Win32 訊息、Direct2D／HDR10 主視窗呈現模式、輸入、檢視狀態與設定。
 - `ImageEnhancer`：SDR VSR 增強後端抽象；沒有 SDK 時由 `NullImageEnhancer` 安全回退。
@@ -63,16 +64,17 @@ UI 執行緒上傳目前 BGRA 圖片至 Direct2D bitmap
 - 已完成 R 鍵開關增強，以及按住 C 暫時顯示原圖比較。
 - 0.4.2 使用主視窗內的專用 HDR 子畫面承載 10-bit HDR10 swap chain，上下資訊列保持可見；TrueHDR 背景佇列只保留最新翻頁請求，離開 HDR 時等待舊工作安全退出後再啟動純 VSR。
 - 0.4.3 在 F11 全螢幕加入螢幕感知的 3 秒游標隱藏計時，並由右鍵 HDR 子選單共用主選單的 HDR 開關與三種預設命令。
-- 0.5.0 將右鍵的 VSR + HDR 開關與 HDR 模式子選單拆開；模式子選單只送出標準、鮮明、柔和三個預設命令。
+- 0.4.4 將右鍵的 VSR + HDR 開關與 HDR 模式子選單拆開；模式子選單只送出標準、鮮明、柔和三個預設命令。
 - GPU／磁碟結果快取仍待加入，預計以來源雜湊、輸出尺寸、模型與品質作為 key。
 
 ### 0.5 格式與色彩
 
+- 0.6.0 已完成 extended-RGB JXR／WDP／HDP 的 128bpp float scRGB 解碼、固定 HDR → SDR/sRGB 色調映射、原尺寸 PNG 轉存與 WIC Fant 保持比例縮小轉存。
 - 動態 GIF／WebP、HEIF sequence。
 - 內建 WebP／AVIF／JPEG XL codec，不再依賴系統擴充套件。
 - RAW 預覽與完整解碼分級。
 - LittleCMS／Windows Color System ICC 管線。
-- 16-bit、scRGB 與 HDR10 顯示路徑。
+- 可調式 JXR tone mapping、16-bit PNG 輸出、完整 scRGB 與 HDR10 檔案顯示路徑。
 
 ### 0.6 檔案管理與可靠性
 

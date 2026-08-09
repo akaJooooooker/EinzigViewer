@@ -4,7 +4,7 @@
 #include "EnhancementWorker.h"
 #include "ImageCache.h"
 #include "ImageEnhancer.h"
-#if EIDOLYX_WITH_RTX
+#if EINZIGVIEWER_WITH_RTX
 #include "RtxHdrPresenter.h"
 #endif
 
@@ -58,6 +58,7 @@ private:
     void DrawOverlay(const D2D1_SIZE_F& size);
 
     void ShowOpenDialog();
+    void ShowExportPngDialog(bool resize);
     bool OpenImage(const std::filesystem::path& file);
     void Navigate(int delta);
     void NavigateTo(std::size_t index);
@@ -107,7 +108,7 @@ private:
     ImageCache cache_;
     std::unique_ptr<ImageEnhancer> enhancer_;
     std::unique_ptr<EnhancementWorker> enhancementWorker_;
-#if EIDOLYX_WITH_RTX
+#if EINZIGVIEWER_WITH_RTX
     std::unique_ptr<RtxHdrPresenter> hdrPresenter_;
     std::shared_ptr<std::atomic_bool> hdrRetirement_;
 #endif

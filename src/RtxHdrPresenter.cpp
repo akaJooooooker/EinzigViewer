@@ -133,13 +133,13 @@ private:
                     }
                 }
             } catch (const std::exception& exception) {
-                result.error = L"HDR 背景處理發生例外，Eidolyx 將安全返回一般顯示。 / "
-                               L"Background HDR processing raised an exception; Eidolyx will safely return to normal display. ";
+                result.error = L"HDR 背景處理發生例外，EinzigViewer 將安全返回一般顯示。 / "
+                               L"Background HDR processing raised an exception; EinzigViewer will safely return to normal display. ";
                 const std::string details = exception.what();
                 result.error.append(details.begin(), details.end());
             } catch (...) {
-                result.error = L"HDR 背景處理發生未知錯誤，Eidolyx 將安全返回一般顯示。 / "
-                               L"Background HDR processing failed unexpectedly; Eidolyx will safely return to normal display.";
+                result.error = L"HDR 背景處理發生未知錯誤，EinzigViewer 將安全返回一般顯示。 / "
+                               L"Background HDR processing failed unexpectedly; EinzigViewer will safely return to normal display.";
             }
 
             HWND notify = nullptr;
@@ -212,9 +212,9 @@ bool RtxHdrPresenter::RefreshHdrMonitor(std::wstring& error) {
             DXGI_OUTPUT_DESC1 description{};
             if (FAILED(output.As(&output6)) || FAILED(output6->GetDesc1(&description)) ||
                 description.ColorSpace != HdrColorSpace) {
-                error = L"目前的 Eidolyx 視窗不在已啟用 Windows HDR 的螢幕上。\n"
+                error = L"目前的 EinzigViewer 視窗不在已啟用 Windows HDR 的螢幕上。\n"
                         L"請開啟該螢幕的 HDR，或把視窗移到 HDR 螢幕後再試一次。 / "
-                        L"The Eidolyx window is not on a display with Windows HDR enabled. "
+                        L"The EinzigViewer window is not on a display with Windows HDR enabled. "
                         L"Enable HDR for that display or move the window to an HDR display and try again.";
                 return false;
             }
@@ -264,8 +264,8 @@ bool RtxHdrPresenter::CreateSwapChain(std::wstring& error) {
         core_->processor.Device(), window_, &description, nullptr, nullptr, &swapChain1);
     if (SUCCEEDED(result)) result = swapChain1.As(&swapChain_);
     if (FAILED(result)) {
-        error = L"無法在 Eidolyx 主視窗建立 10-bit HDR swap chain。 / "
-                L"Could not create the 10-bit HDR swap chain in the Eidolyx main window.";
+        error = L"無法在 EinzigViewer 主視窗建立 10-bit HDR swap chain。 / "
+                L"Could not create the 10-bit HDR swap chain in the EinzigViewer main window.";
         return false;
     }
     factory->MakeWindowAssociation(window_, DXGI_MWA_NO_ALT_ENTER);
