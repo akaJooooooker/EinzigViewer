@@ -36,7 +36,7 @@
 
 ## RTX 視訊增強（VSR + HDR）
 
-- 主程式按 `H` 會讓原本的 MiraView 主視窗切換為 10-bit HDR10 swap chain；同一個 D3D11 裝置與 NGX 生命週期依序執行 VSR Ultra → TrueHDR，再按 `H` 會立即恢復 Direct2D。
+- 主程式按 `H` 會讓原本的 Eidolyx 主視窗切換為 10-bit HDR10 swap chain；同一個 D3D11 裝置與 NGX 生命週期依序執行 VSR Ultra → TrueHDR，再按 `H` 會立即恢復 Direct2D。
 - TrueHDR 輸入是 BGRA8 Rec.709 SDR，輸出為 `DXGI_FORMAT_R10G10B10A2_UNORM`。
 - 主視窗使用 flip-model swap chain 並設定 `DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020`，不是在 SDR 畫面上模擬加亮。
 - 啟動前透過 `IDXGIOutput6::GetDesc1` 確認 Windows HDR，並把螢幕峰值亮度限制在 SDK 接受的 400–2000 nits。
@@ -58,6 +58,6 @@
 ## SDK 檔案管理
 
 - SDK 與 redistributable 不直接提交 Git，除非授權明確允許。
-- CMake 使用 `MIRAVIEW_RTX_SDK_ROOT` 指向本機套件。
+- CMake 使用 `EIDOLYX_RTX_SDK_ROOT` 指向本機套件。
 - 未設定 SDK 時仍要能完整建置一般版；RTX 是可選能力，不是基本檢視器的硬相依。
 - 發佈前逐項確認 NVIDIA runtime、模型下載、驅動最低版本與再散布條款。

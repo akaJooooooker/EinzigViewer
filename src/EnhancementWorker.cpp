@@ -58,13 +58,13 @@ void EnhancementWorker::WorkerLoop() {
                 completed.error = L"RTX 工作缺少來源圖片。 / RTX work item has no source image.";
             }
         } catch (const std::exception& exception) {
-            completed.error = L"RTX 處理發生例外，但 MiraView 已安全回復一般顯示。 / "
-                              L"RTX processing raised an exception; MiraView safely returned to normal display. ";
+            completed.error = L"RTX 處理發生例外，但 Eidolyx 已安全回復一般顯示。 / "
+                              L"RTX processing raised an exception; Eidolyx safely returned to normal display. ";
             const std::string what = exception.what();
             completed.error.append(what.begin(), what.end());
         } catch (...) {
-            completed.error = L"RTX 處理發生未知錯誤，但 MiraView 已安全回復一般顯示。 / "
-                              L"RTX processing failed unexpectedly; MiraView safely returned to normal display.";
+            completed.error = L"RTX 處理發生未知錯誤，但 Eidolyx 已安全回復一般顯示。 / "
+                              L"RTX processing failed unexpectedly; Eidolyx safely returned to normal display.";
         }
 
         {

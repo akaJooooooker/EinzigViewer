@@ -1,23 +1,29 @@
-MiraView 0.4.4
+Eidolyx 0.5.0
 ================
 
 繁體中文
 --------
 
 簡介
-MiraView 是一款針對漫畫文字、線條與一般圖片放大的原生 64 位元 Windows
+Eidolyx 是一款針對漫畫文字、線條與一般圖片放大的原生 64 位元 Windows
 圖片檢視器，並整合 NVIDIA RTX Video VSR 與 HDR。VSR 是超解析度放大增強，
 不是內容修復；它不會還原原圖沒有的細節，但對低解析度漫畫細字與邊緣通常
 特別有幫助。程式支援資料夾自然排序、背景預讀、縮放、平移與全螢幕顯示。
 主視窗第一次啟動會在目前螢幕正中央以 960 x 640 開啟，之後會記住自行
 調整的大小與位置。
 
+專案更名
+自 0.5.0 起，專案由 MiraView 更名為 Eidolyx，以避開既有同名專案。Eidolyx
+是由希臘文 eidolon（影像）與拉丁文 lux（光）延伸的新造字。若新版設定尚未
+建立，第一次啟動會讀取舊版 MiraView 設定；關閉後改存到
+%LOCALAPPDATA%\Eidolyx\settings.ini。
+
 安裝與啟動
-1. 將 MiraView-版本-win-x64.zip 完整解壓縮到同一個資料夾。
-2. 執行 MiraView.exe。
-3. 按 O 開啟圖片、把圖片拖進視窗，或在命令列把圖片路徑傳給 MiraView.exe。
+1. 將 Eidolyx-版本-win-x64.zip 完整解壓縮到同一個資料夾。
+2. 執行 Eidolyx.exe。
+3. 按 O 開啟圖片、把圖片拖進視窗，或在命令列把圖片路徑傳給 Eidolyx.exe。
 4. VSR 需要 nvngx_vsr.dll；整合 HDR 顯示另需 nvngx_truehdr.dll，兩者都要
-   放在 MiraView.exe 的同一個資料夾。0.4.4 不需要獨立 HDR 執行檔。
+   放在 Eidolyx.exe 的同一個資料夾。0.5.0 不需要獨立 HDR 執行檔。
 
 Windows SmartScreen 可能因為此版本尚未使用商業程式碼簽章而顯示警告。
 請只從本專案的官方 GitHub Release 下載；若確認來源正確，可選擇「其他資訊」
@@ -38,7 +44,7 @@ Windows SmartScreen 可能因為此版本尚未使用商業程式碼簽章而顯
 - + / -：放大 / 縮小。
 - 滑鼠左鍵拖曳：平移圖片。
 - F11 或雙擊：切換全螢幕。
-- F11 全螢幕閒置 3 秒後，游標在 MiraView 所在螢幕時會自動隱藏；移動、
+- F11 全螢幕閒置 3 秒後，游標在 Eidolyx 所在螢幕時會自動隱藏；移動、
   開啟右鍵選單、切換程式或離開全螢幕會恢復，其他螢幕的游標不會被隱藏。
 - M：切換視窗最大化，保留標題列、選單與工作列。
 - I：顯示或隱藏資訊列。
@@ -50,13 +56,13 @@ Windows SmartScreen 可能因為此版本尚未使用商業程式碼簽章而顯
 - 從「說明 -> 語言」選擇繁體中文或 English；程式會記住選擇。
 
 VSR + HDR 整合顯示操作
-- 原本的 MiraView 主視窗會由 10-bit HDR10 swap chain 接管，不再另開 HDR 視窗；
+- 原本的 Eidolyx 主視窗會由 10-bit HDR10 swap chain 接管，不再另開 HDR 視窗；
   VSR Ultra 的 GPU texture 會直接交給 TrueHDR，再輸出 HDR10／Rec.2020。
 - HDR 圖片使用主視窗內的專用顯示區，上下資訊列保持可見。從 HDR 直接切回
   純 VSR 時，程式會先結束舊 TrueHDR 工作，避免畫面或翻頁卡在上一張 HDR 幀。
 - 左右鍵 / Page Up / Page Down / Space / 滾輪：瀏覽同資料夾圖片；程式沿用主
   檢視器前後各 8 張預讀，TrueHDR 在背景處理，快速翻頁只保留最新請求。
-- 可同時開啟多個 MiraView 程序；每個程序使用獨立 NGX
+- 可同時開啟多個 Eidolyx 程序；每個程序使用獨立 NGX
   實例。可同時處理的數量與速度取決於 GPU 負載和顯存。
 - M：視窗最大化；F11：無邊框全螢幕；1／2／3 保留為原本的檢視尺寸快捷鍵。
   TrueHDR 強度請從「RTX -> HDR 預設」選擇標準、鮮明或柔和。
@@ -76,13 +82,13 @@ VSR + HDR 整合顯示操作
 RTX Video VSR 使用門檻
 - GeForce RTX 20 系列或更新，或 NVIDIA RTX 1000 系列或更新的 GPU。
 - 支援 RTX Video SDK 的 NVIDIA 驅動程式；SDK 1.1 文件標示最低 550.58。
-- MiraView 必須實際使用 NVIDIA RTX GPU。雙顯卡筆電請在 Windows 圖形設定或
-  NVIDIA App 將 MiraView.exe 設為「高效能」。
-- nvngx_vsr.dll 必須與 MiraView.exe 位於同一資料夾。
+- Eidolyx 必須實際使用 NVIDIA RTX GPU。雙顯卡筆電請在 Windows 圖形設定或
+  NVIDIA App 將 Eidolyx.exe 設為「高效能」。
+- nvngx_vsr.dll 必須與 Eidolyx.exe 位於同一資料夾。
 - 整合 HDR 顯示需要 nvngx_truehdr.dll、HDR 顯示器及已開啟的 Windows HDR；
-  HDR10 swap chain 已內建於 MiraView.exe，程式會依螢幕回報亮度設定
+  HDR10 swap chain 已內建於 Eidolyx.exe，程式會依螢幕回報亮度設定
   400 到 2000 nits。
-- NVIDIA 控制面板或 NVIDIA App 裡的「影片／視訊增強」不必開啟。MiraView
+- NVIDIA 控制面板或 NVIDIA App 裡的「影片／視訊增強」不必開啟。Eidolyx
   直接呼叫 RTX Video SDK；硬體、驅動、runtime 與 RTX GPU 條件仍不可少。
 - 只有圖片需要放大時才會執行 VSR。輸出依目前顯示尺寸計算，4K 顯示可產生
   接近 3840 x 2160 的輸出，最高單邊 7680 像素。
@@ -97,12 +103,12 @@ RTX Video VSR 使用門檻
 - GIF 與動態 WebP 目前只顯示第一幀。
 - 尚未包含縮圖瀏覽器、資料夾樹、CBZ、雙頁模式與完整 ICC 色彩管理。
 - VSR 與 TrueHDR 已使用同一條 GPU texture 管線，10-bit HDR10 輸出也已整合回
-  原本的 MiraView 主視窗。
+  原本的 Eidolyx 主視窗。
 - 第一次啟用 RTX 需要初始化 NGX，可能需數秒。
 
 第三方軟體
-MiraView 使用 NVIDIA RTX Video SDK 1.1。NVIDIA runtime 仍受隨附的 NVIDIA
-RTX SDKs LICENSE 約束，並不改採 MiraView 的授權。詳見 THIRD_PARTY_NOTICES.md
+Eidolyx 使用 NVIDIA RTX Video SDK 1.1。NVIDIA runtime 仍受隨附的 NVIDIA
+RTX SDKs LICENSE 約束，並不改採 Eidolyx 的授權。詳見 THIRD_PARTY_NOTICES.md
 與 LICENSES 資料夾。NVIDIA 及相關商標屬 NVIDIA Corporation；本專案不代表
 受到 NVIDIA 贊助或背書。
 
@@ -111,7 +117,7 @@ English
 -------
 
 Overview
-MiraView is a native 64-bit Windows image viewer for enlarged comic text,
+Eidolyx is a native 64-bit Windows image viewer for enlarged comic text,
 linework, and general images, with NVIDIA RTX Video VSR and HDR support. VSR is
 super-resolution upscaling, not content restoration: it cannot recover detail
 that was never present, but is often especially useful for small comic text and
@@ -119,13 +125,20 @@ edges. It also provides natural sorting, prefetching, zoom, pan, and fullscreen.
 The main window initially opens centered at a compact 960 x 640, then remembers
 your manually adjusted size and position.
 
+Project rename
+Starting with 0.5.0, the project is renamed from MiraView to Eidolyx to avoid an
+existing project with the same name. Eidolyx is a coined name derived from the
+Greek eidolon (image) and Latin lux (light). If no new settings file exists, the
+first launch reads the legacy MiraView settings; on exit, settings are saved to
+%LOCALAPPDATA%\Eidolyx\settings.ini.
+
 Install and start
-1. Extract the entire MiraView-<version>-win-x64.zip archive into one folder.
-2. Run MiraView.exe.
+1. Extract the entire Eidolyx-<version>-win-x64.zip archive into one folder.
+2. Run Eidolyx.exe.
 3. Press O to open an image, drag an image into the window, or pass an image
-   path to MiraView.exe on the command line.
+   path to Eidolyx.exe on the command line.
 4. VSR requires nvngx_vsr.dll. Integrated HDR also requires nvngx_truehdr.dll;
-   keep both beside MiraView.exe. v0.4.4 does not need a separate HDR executable.
+   keep both beside Eidolyx.exe. v0.5.0 does not need a separate HDR executable.
 
 Windows SmartScreen may warn because this release does not yet have a commercial
 code-signing certificate. Download only from the official GitHub Release for
@@ -147,7 +160,7 @@ Controls
 - Left mouse drag: Pan the image.
 - F11 or double-click: Toggle fullscreen.
 - In F11 fullscreen, the cursor hides after three idle seconds only while it is
-  on MiraView's monitor. Movement, the context menu, switching apps, or leaving
+  on Eidolyx's monitor. Movement, the context menu, switching apps, or leaving
   fullscreen restores it; a cursor on another monitor is never hidden.
 - M: Toggle a maximized window while keeping the title bar, menu, and taskbar.
 - I: Show or hide the information bar.
@@ -161,7 +174,7 @@ Controls
   is saved automatically.
 
 Integrated VSR + HDR controls
-- The original MiraView main window is taken over by a 10-bit HDR10 swap chain;
+- The original Eidolyx main window is taken over by a 10-bit HDR10 swap chain;
   no separate HDR window opens. The VSR Ultra GPU texture is passed directly to
   TrueHDR and then to HDR10/Rec.2020 output.
 - HDR uses a dedicated content surface inside the main window, keeping both
@@ -171,12 +184,12 @@ Integrated VSR + HDR controls
   folder. The main viewer's eight-image prefetch on either side is reused.
   TrueHDR runs in the background, and rapid navigation retains only the latest
   request.
-- Multiple MiraView processes can run at once, each with an independent NGX
+- Multiple Eidolyx processes can run at once, each with an independent NGX
   instance. Practical concurrency and speed depend on GPU load and VRAM.
 - M: Maximize; F11: Borderless fullscreen. Keys 1/2/3 retain the original view
   size actions. Choose Standard, Vivid, or Gentle under RTX -> HDR preset.
 - Windows HDR must be enabled first. The integrated window uses the HDR display
-  containing the main MiraView window.
+  containing the main Eidolyx window.
 
 Mouse wheel mode
 Choose one under View -> Mouse Wheel:
@@ -192,15 +205,15 @@ General requirements
 RTX Video VSR requirements
 - GeForce RTX 20 series or newer, or NVIDIA RTX 1000 series or newer.
 - A compatible NVIDIA driver; the SDK 1.1 documentation lists 550.58 minimum.
-- MiraView must run on the NVIDIA RTX GPU. On dual-GPU laptops, select the
-  high-performance NVIDIA GPU for MiraView.exe in Windows Graphics settings or
+- Eidolyx must run on the NVIDIA RTX GPU. On dual-GPU laptops, select the
+  high-performance NVIDIA GPU for Eidolyx.exe in Windows Graphics settings or
   the NVIDIA App.
-- nvngx_vsr.dll must remain beside MiraView.exe.
+- nvngx_vsr.dll must remain beside Eidolyx.exe.
 - Integrated HDR output requires nvngx_truehdr.dll, an HDR display, and Windows
-  HDR enabled. The HDR10 swap chain is built into MiraView.exe. Reported display
+  HDR enabled. The HDR10 swap chain is built into Eidolyx.exe. Reported display
   luminance is clamped to 400-2000 nits.
 - The Video Enhancement switch in NVIDIA Control Panel or the NVIDIA App does
-  not need to be enabled. MiraView calls the RTX Video SDK directly; compatible
+  not need to be enabled. Eidolyx calls the RTX Video SDK directly; compatible
   hardware, driver, runtime, and use of the RTX GPU are still required.
 - VSR runs only when an image needs enlargement. Output follows the current
   display size, can approach 3840 x 2160 on a 4K display, and is capped at 7680
@@ -208,10 +221,10 @@ RTX Video VSR requirements
 
 When RTX is unsupported
 - If no compatible RTX GPU is present, the driver is too old, HDR is disabled,
-  or a required DLL is missing, MiraView shows an error dialog and continues in
+  or a required DLL is missing, Eidolyx shows an error dialog and continues in
   normal image-viewing mode instead of closing.
 - HDR and VSR both use background work with exception handling. If HDR
-  initialization or processing fails, MiraView releases the HDR10 swap chain and
+  initialization or processing fails, Eidolyx releases the HDR10 swap chain and
   restores normal Direct2D image viewing in the same main window.
 
 Current limitations
@@ -219,14 +232,14 @@ Current limitations
 - Thumbnail browser, folder tree, CBZ, two-page mode, and complete ICC color
   management are not implemented yet.
 - VSR and TrueHDR share one GPU texture pipeline, and 10-bit HDR10 output is now
-  integrated into the original MiraView main window.
+  integrated into the original Eidolyx main window.
 - The first RTX activation initializes NGX and may take several seconds.
 
 Third-party software
-MiraView uses NVIDIA RTX Video SDK 1.1. The NVIDIA runtime remains governed by
-the included NVIDIA RTX SDKs LICENSE and is not relicensed under MiraView terms.
+Eidolyx uses NVIDIA RTX Video SDK 1.1. The NVIDIA runtime remains governed by
+the included NVIDIA RTX SDKs LICENSE and is not relicensed under Eidolyx terms.
 See THIRD_PARTY_NOTICES.md and the LICENSES directory. NVIDIA and related marks
 belong to NVIDIA Corporation. This project is not sponsored or endorsed by
 NVIDIA.
 
-Project: https://github.com/akaJooooooker/MiraView
+Project: https://github.com/akaJooooooker/Eidolyx

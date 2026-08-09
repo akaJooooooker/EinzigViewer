@@ -4,7 +4,7 @@
 #include "EnhancementWorker.h"
 #include "ImageCache.h"
 #include "ImageEnhancer.h"
-#if MIRAVIEW_WITH_RTX
+#if EIDOLYX_WITH_RTX
 #include "RtxHdrPresenter.h"
 #endif
 
@@ -107,7 +107,7 @@ private:
     ImageCache cache_;
     std::unique_ptr<ImageEnhancer> enhancer_;
     std::unique_ptr<EnhancementWorker> enhancementWorker_;
-#if MIRAVIEW_WITH_RTX
+#if EIDOLYX_WITH_RTX
     std::unique_ptr<RtxHdrPresenter> hdrPresenter_;
     std::shared_ptr<std::atomic_bool> hdrRetirement_;
 #endif

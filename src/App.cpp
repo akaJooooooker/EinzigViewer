@@ -1,7 +1,7 @@
 #include "App.h"
 
 #include "NullImageEnhancer.h"
-#if MIRAVIEW_WITH_RTX
+#if EIDOLYX_WITH_RTX
 #include "RtxImageEnhancer.h"
 #endif
 
@@ -20,9 +20,9 @@
 using Microsoft::WRL::ComPtr;
 
 namespace {
-constexpr wchar_t WindowClassName[] = L"MiraView.MainWindow";
-constexpr wchar_t HdrSurfaceClassName[] = L"MiraView.HdrSurface";
-constexpr wchar_t ProductName[] = L"MiraView";
+constexpr wchar_t WindowClassName[] = L"Eidolyx.MainWindow";
+constexpr wchar_t HdrSurfaceClassName[] = L"Eidolyx.HdrSurface";
+constexpr wchar_t ProductName[] = L"Eidolyx";
 constexpr WORD AppIconResource = 101;
 constexpr UINT_PTR NoticeTimer = 1;
 constexpr UINT_PTR EnhancementResizeTimer = 2;
@@ -77,7 +77,7 @@ D2D1_RECT_F ClientRectF(const HWND window) {
 }
 
 App::App() : cache_(768ULL * 1024ULL * 1024ULL) {
-#if MIRAVIEW_WITH_RTX
+#if EIDOLYX_WITH_RTX
     enhancer_ = std::make_unique<RtxImageEnhancer>();
 #else
     enhancer_ = std::make_unique<NullImageEnhancer>();
@@ -89,7 +89,7 @@ App::~App() = default;
 int App::Run(const HINSTANCE instance, const std::filesystem::path& initialFile) {
     if (!CreateDeviceIndependentResources() || !CreateMainWindow(instance)) {
         MessageBoxW(nullptr,
-            L"無法初始化 MiraView。\n\nMiraView could not be initialized.",
+            L"無法初始化 Eidolyx。\n\nEidolyx could not be initialized.",
             ProductName, MB_OK | MB_ICONERROR);
         return 1;
     }
@@ -167,8 +167,8 @@ bool App::CreateHdrSurface(std::wstring& error) {
         WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
         0, 0, 1, 1, window_, nullptr, instance, nullptr);
     if (!hdrSurfaceWindow_) {
-        error = L"無法在 MiraView 主視窗建立 HDR 顯示區。 / "
-                L"Could not create the HDR surface inside the MiraView main window.";
+        error = L"無法在 Eidolyx 主視窗建立 HDR 顯示區。 / "
+                L"Could not create the HDR surface inside the Eidolyx main window.";
         return false;
     }
     UpdateHdrSurfaceBounds();
@@ -191,7 +191,7 @@ void App::UpdateHdrSurfaceBounds() {
     const int height = std::max(1L, client.bottom - client.top - top - bottom);
     SetWindowPos(hdrSurfaceWindow_, HWND_TOP, 0, top, width, height,
         SWP_NOACTIVATE | SWP_SHOWWINDOW);
-#if MIRAVIEW_WITH_RTX
+#if EIDOLYX_WITH_RTX
     if (hdrPresenter_) hdrPresenter_->Invalidate();
 #endif
 }
@@ -279,7 +279,7 @@ HMENU App::CreateApplicationMenu() {
         UiText(english, L"語言", L"Language"));
     AppendMenuW(helpMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(helpMenu, MF_STRING, CommandAbout,
-        UiText(english, L"關於 MiraView…", L"About MiraView…"));
+        UiText(english, L"關於 Eidolyx…", L"About Eidolyx…"));
 
     AppendMenuW(root, MF_POPUP, reinterpret_cast<UINT_PTR>(fileMenu),
         UiText(english, L"檔案(&F)", L"File(&F)"));
@@ -356,10 +356,10 @@ void App::SetLanguage(const UiLanguage language) {
 void App::ShowRtxError(const std::wstring& details) {
     std::wstring message = IsEnglish()
         ? L"RTX Video Enhancement is unavailable on this computer.\n\n"
-          L"MiraView will continue in normal image-viewing mode and will not close.\n"
+          L"Eidolyx will continue in normal image-viewing mode and will not close.\n"
           L"Verify the NVIDIA RTX GPU, compatible driver, and the required runtime DLL files."
         : L"這台電腦目前無法使用 RTX 視訊增強。\n\n"
-          L"MiraView 會繼續以一般圖片檢視模式運作，不會因此關閉。\n"
+          L"Eidolyx 會繼續以一般圖片檢視模式運作，不會因此關閉。\n"
           L"請確認 NVIDIA RTX 顯示卡、相容驅動程式與必要的 runtime DLL。";
     if (!details.empty()) {
         message += L"\n\n";
@@ -435,12 +435,12 @@ void App::Paint() {
             rendered = PaintHdr(error);
         } catch (const std::exception& exception) {
             error = L"HDR 呈現發生例外，已安全返回一般顯示。 / "
-                    L"HDR presentation raised an exception; MiraView safely returned to normal display. ";
+                    L"HDR presentation raised an exception; Eidolyx safely returned to normal display. ";
             const std::string details = exception.what();
             error.append(details.begin(), details.end());
         } catch (...) {
             error = L"HDR 呈現發生未知錯誤，已安全返回一般顯示。 / "
-                    L"HDR presentation failed unexpectedly; MiraView safely returned to normal display.";
+                    L"HDR presentation failed unexpectedly; Eidolyx safely returned to normal display.";
         }
         EndPaint(window_, &paint);
         if (!rendered) {
@@ -675,7 +675,7 @@ void App::ApplyCurrentIfReady() {
 
 void App::RequestEnhancement() {
     if (!enhancementEnabled_ || !enhancementWorker_ || !currentImage_) return;
-#if MIRAVIEW_WITH_RTX
+#if EIDOLYX_WITH_RTX
     if (hdrRetirement_ && !hdrRetirement_->load(std::memory_order_acquire)) {
         enhancementInProgress_ = true;
         SetTimer(window_, HdrRetirementTimer, 100, nullptr);
@@ -751,7 +751,7 @@ void App::ToggleEnhancement() {
     if (enhancementEnabled_) {
         enhancementEnabled_ = false;
         enhancementInProgress_ = false;
-#if MIRAVIEW_WITH_RTX
+#if EIDOLYX_WITH_RTX
         KillTimer(window_, HdrRetirementTimer);
 #endif
         enhancedImage_.reset();
@@ -779,7 +779,7 @@ void App::ToggleEnhancement() {
 
 void App::RecreateEnhancementBackend() {
     enhancementWorker_.reset();
-#if MIRAVIEW_WITH_RTX
+#if EIDOLYX_WITH_RTX
     enhancer_ = std::make_unique<RtxImageEnhancer>();
 #else
     enhancer_ = std::make_unique<NullImageEnhancer>();
@@ -802,7 +802,7 @@ void App::ToggleHdrMode() {
             L"Open an image before starting RTX Video Enhancement (VSR + HDR)."), 5000);
         return;
     }
-#if MIRAVIEW_WITH_RTX
+#if EIDOLYX_WITH_RTX
     if (hdrRetirement_ && !hdrRetirement_->load(std::memory_order_acquire)) {
         SetNotice(UiText(IsEnglish(),
             L"上一個 RTX HDR 工作正在結束，完成後再試一次。",
@@ -813,7 +813,7 @@ void App::ToggleHdrMode() {
     wchar_t executablePath[32768]{};
     if (GetModuleFileNameW(nullptr, executablePath, static_cast<DWORD>(std::size(executablePath))) == 0) {
         ShowRtxError(UiText(IsEnglish(),
-            L"找不到 MiraView 程式路徑。", L"The MiraView executable path could not be found."));
+            L"找不到 Eidolyx 程式路徑。", L"The Eidolyx executable path could not be found."));
         return;
     }
     const auto applicationDirectory = std::filesystem::path(executablePath).parent_path();
@@ -857,8 +857,8 @@ void App::ToggleHdrMode() {
     UpdateWindowTitle();
     UpdateMenuChecks();
     SetNotice(UiText(IsEnglish(),
-        L"RTX HDR10 已在 MiraView 主視窗啟用；按 H 可返回一般顯示。",
-        L"RTX HDR10 is active in the MiraView main window; press H to return to normal presentation."), 5000);
+        L"RTX HDR10 已在 Eidolyx 主視窗啟用；按 H 可返回一般顯示。",
+        L"RTX HDR10 is active in the Eidolyx main window; press H to return to normal presentation."), 5000);
     InvalidateRect(window_, nullptr, FALSE);
 #else
     ShowRtxError(UiText(IsEnglish(),
@@ -869,11 +869,11 @@ void App::ToggleHdrMode() {
 
 void App::DisableHdrMode(const bool restoreSdrBackend) {
     if (!hdrEnabled_
-#if MIRAVIEW_WITH_RTX
+#if EIDOLYX_WITH_RTX
         && !hdrPresenter_
 #endif
     ) return;
-#if MIRAVIEW_WITH_RTX
+#if EIDOLYX_WITH_RTX
     if (hdrPresenter_) {
         hdrRetirement_ = hdrPresenter_->Shutdown();
         hdrPresenter_.reset();
@@ -894,7 +894,7 @@ void App::DisableHdrMode(const bool restoreSdrBackend) {
 
 void App::SetHdrPreset(const int preset) {
     hdrPreset_ = std::clamp(preset, 0, 2);
-#if MIRAVIEW_WITH_RTX
+#if EIDOLYX_WITH_RTX
     if (hdrPresenter_) hdrPresenter_->Invalidate();
 #endif
     UpdateMenuChecks();
@@ -903,7 +903,7 @@ void App::SetHdrPreset(const int preset) {
 }
 
 bool App::PaintHdr(std::wstring& error) {
-#if MIRAVIEW_WITH_RTX
+#if EIDOLYX_WITH_RTX
     if (!hdrEnabled_ || !hdrPresenter_) return false;
     RECT client{};
     GetClientRect(hdrSurfaceWindow_, &client);
@@ -951,7 +951,7 @@ void App::ClampHdrZoom() {
 
 void App::UploadCurrentBitmap() {
     bitmap_.Reset();
-#if MIRAVIEW_WITH_RTX
+#if EIDOLYX_WITH_RTX
     if (hdrEnabled_) {
         if (hdrPresenter_) hdrPresenter_->Invalidate();
         return;
@@ -1197,12 +1197,18 @@ std::filesystem::path App::SettingsPath() const {
     if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &localAppData))) return {};
     std::filesystem::path path(localAppData);
     CoTaskMemFree(localAppData);
-    return path / L"MiraView" / L"settings.ini";
+    return path / L"Eidolyx" / L"settings.ini";
 }
 
 void App::LoadSettings() {
-    const auto path = SettingsPath();
+    auto path = SettingsPath();
     if (path.empty()) return;
+    std::error_code settingsError;
+    if (!std::filesystem::exists(path, settingsError)) {
+        const auto legacyPath = path.parent_path().parent_path() / L"MiraView" / L"settings.ini";
+        settingsError.clear();
+        if (std::filesystem::exists(legacyPath, settingsError)) path = legacyPath;
+    }
     const auto native = path.wstring();
     showInfo_ = GetPrivateProfileIntW(L"view", L"showInfo", 1, native.c_str()) != 0;
     const int mode = GetPrivateProfileIntW(L"view", L"mode", 0, native.c_str());
@@ -1273,7 +1279,7 @@ LRESULT CALLBACK App::WindowProcedure(const HWND window, const UINT message, con
 LRESULT CALLBACK App::HdrSurfaceProcedure(
     const HWND window, const UINT message, const WPARAM wParam, const LPARAM lParam) {
     switch (message) {
-#if MIRAVIEW_WITH_RTX
+#if EIDOLYX_WITH_RTX
     case RtxHdrPresenter::FrameReadyMessage:
         if (const HWND parent = GetParent(window); parent && IsWindow(parent)) {
             PostMessageW(parent, message, wParam, lParam);
@@ -1322,7 +1328,7 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
     case EnhancementWorker::EnhancementReadyMessage:
         ApplyEnhancementResult();
         return 0;
-#if MIRAVIEW_WITH_RTX
+#if EIDOLYX_WITH_RTX
     case RtxHdrPresenter::FrameReadyMessage:
         if (hdrEnabled_) InvalidateRect(window_, nullptr, FALSE);
         return 0;
@@ -1479,10 +1485,10 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         case CommandLanguageEnglish: SetLanguage(UiLanguage::English); break;
         case CommandAbout:
             MessageBoxW(window_,
-                L"MiraView 0.4.4 (RTX VSR + HDR)\n\n"
+                L"Eidolyx 0.5.0 (RTX VSR + HDR)\n\n"
                 L"【繁體中文】\n"
                 L"針對漫畫文字與圖片放大的原生 Windows 圖片檢視器，支援 NVIDIA RTX Video VSR 與 HDR。\n"
-                L"MiraView 由 Mira + View 組成；Mira 取「觀看／令人驚豔」的語感，不是縮寫。\n"
+                L"Eidolyx 是由希臘文 eidolon（影像）與拉丁文 lux（光）延伸的新造字，不是縮寫。\n"
                 L"VSR 會依目前顯示尺寸輸出，最高單邊 7680 像素。\n"
                 L"使用 NVIDIA RTX Video SDK 1.1。\n"
                 L"按 H 可在原本主視窗切換 VSR → TrueHDR 10-bit 顯示。\n"
@@ -1492,7 +1498,7 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
                 L"本專案不代表受到 NVIDIA 贊助或背書。\n\n"
                 L"[English]\n"
                 L"Native Windows image viewer for enlarged comic text and images, with NVIDIA RTX Video VSR and HDR.\n"
-                L"MiraView combines Mira—evoking look and wonder—with View; it is not an acronym.\n"
+                L"Eidolyx is a coined name derived from the Greek eidolon (image) and Latin lux (light); it is not an acronym.\n"
                 L"VSR output follows the current display size, up to 7680 pixels per side.\n"
                 L"Built with NVIDIA RTX Video SDK 1.1.\n"
                 L"Press H to toggle VSR to TrueHDR 10-bit output in the original main window.\n"
@@ -1500,7 +1506,7 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
                 L"F11 fullscreen hides an idle cursor after 3 seconds; right-click selects the HDR mode.\n"
                 L"Hold C to compare the original image.\n"
                 L"This project is not sponsored or endorsed by NVIDIA.",
-                L"關於 MiraView / About MiraView", MB_OK | MB_ICONINFORMATION);
+                L"關於 Eidolyx / About Eidolyx", MB_OK | MB_ICONINFORMATION);
             break;
         case CommandExit: SendMessageW(window_, WM_CLOSE, 0, 0); break;
         default: break;
@@ -1511,7 +1517,7 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
             HideFullscreenCursorIfEligible();
             return 0;
         }
-#if MIRAVIEW_WITH_RTX
+#if EIDOLYX_WITH_RTX
         if (wParam == HdrRetirementTimer) {
             if (!hdrRetirement_ || hdrRetirement_->load(std::memory_order_acquire)) {
                 KillTimer(window_, HdrRetirementTimer);
@@ -1541,7 +1547,7 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         KillTimer(window_, FullscreenCursorTimer);
         ShowFullscreenCursor();
         cache_.SetNotificationWindow(nullptr);
-#if MIRAVIEW_WITH_RTX
+#if EIDOLYX_WITH_RTX
         if (hdrPresenter_) {
             (void)hdrPresenter_->Shutdown();
             hdrPresenter_.reset();
