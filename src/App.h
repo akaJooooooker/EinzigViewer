@@ -4,6 +4,7 @@
 #include "EnhancementWorker.h"
 #include "ImageCache.h"
 #include "ImageEnhancer.h"
+#include "ContinuousLayout.h"
 #if EINZIGVIEWER_WITH_RTX
 #include "RtxHdrPresenter.h"
 #endif
@@ -17,6 +18,9 @@
 #include <atomic>
 #include <memory>
 #include <string>
+#include <future>
+#include <map>
+#include <tuple>
 
 enum class ViewMode : int {
     FitWindow = 0,
@@ -35,6 +39,9 @@ enum class UiLanguage : int {
 };
 
 class App {
+#ifdef EINZIGVIEWER_TESTING
+    friend struct ReaderUiTest;
+#endif
 public:
     App();
     ~App();
@@ -58,6 +65,18 @@ private:
     void DrawOverlay(const D2D1_SIZE_F& size);
 
     void ShowOpenDialog();
+    void StartBookOpen(const std::filesystem::path& file);
+    void PollBookOpen();
+    void ResetDocument();
+    void SetContinuous(bool enabled);
+    void DrawContinuous(const D2D1_SIZE_F& size);
+    void RefreshContinuous();
+    void ScrollContinuous(double delta);
+    void JumpContinuous(std::size_t index, bool bottom = false);
+    void UpdateScrollBar();
+    [[nodiscard]] D2D1_SIZE_F ReaderSize() const;
+    [[nodiscard]] double ReaderWidth() const;
+    [[nodiscard]] double ReaderHeight() const;
     void ShowExportPngDialog(bool resize);
     bool OpenImage(const std::filesystem::path& file);
     void Navigate(int delta);
@@ -150,5 +169,19 @@ private:
     DWORD windowStyle_ = 0;
     std::wstring notice_;
     ULONGLONG noticeUntil_ = 0;
+    bool continuous_ = false;
+    ContinuousLayout layout_;
+    double scrollPosition_ = 0;
+    double dragScrollOrigin_ = 0;
+    int wheelRemainder_ = 0;
+    float readerZoom_ = 1.0F;
+    float readerPanX_ = 0;
+    std::size_t requestedFirst_ = SIZE_MAX;
+    std::size_t requestedLast_ = SIZE_MAX;
+    std::map<std::tuple<std::size_t, unsigned, unsigned>, Microsoft::WRL::ComPtr<ID2D1Bitmap>> readerTiles_;
+    struct BookOpenResult { std::shared_ptr<EpubBook> book; std::wstring error; };
+    std::future<BookOpenResult> bookFuture_;
+    std::shared_ptr<std::atomic_bool> bookCancelled_;
+    std::filesystem::path pendingBook_;
 };
 

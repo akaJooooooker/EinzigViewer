@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(EinzigViewer VERSION 0.6.0 LANGUAGES CXX RC)
+project(EinzigViewer VERSION 0.7.0 LANGUAGES CXX RC)
+
+add_library(einzig_miniz STATIC third_party/miniz/miniz.c
+    third_party/miniz/miniz_tinfl.c third_party/miniz/miniz_tdef.c third_party/miniz/miniz_zip.c)
+set_source_files_properties(third_party/miniz/miniz.c third_party/miniz/miniz_tinfl.c
+    third_party/miniz/miniz_tdef.c third_party/miniz/miniz_zip.c PROPERTIES LANGUAGE CXX)
+target_include_directories(einzig_miniz PUBLIC third_party/miniz)
+target_compile_definitions(einzig_miniz PUBLIC MINIZ_NO_ZLIB_COMPATIBLE_NAMES)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,6 +19,10 @@ add_executable(EinzigViewer WIN32
     src/App.h
     src/FolderModel.cpp
     src/FolderModel.h
+    src/EpubBook.cpp
+    src/EpubBook.h
+    src/ContinuousLayout.h
+    src/ContinuousReader.cpp
     src/ImageCache.cpp
     src/ImageCache.h
     src/ImageData.h
@@ -52,6 +63,8 @@ target_link_libraries(EinzigViewer PRIVATE
     comdlg32
     user32
     gdi32
+    xmllite
+    einzig_miniz
 )
 
 set(EINZIGVIEWER_RTX_SDK_ROOT "${CMAKE_SOURCE_DIR}/.sdk/rtx-video-1.1.0"
@@ -139,6 +152,36 @@ else()
 endif()
 
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT EinzigViewer)
+
+add_executable(EinzigViewerReaderProbe tests/ReaderProbe.cpp src/EpubBook.cpp src/FolderModel.cpp
+    src/WicDecoder.cpp src/ImageExporter.cpp src/ImageCache.cpp)
+target_include_directories(EinzigViewerReaderProbe PRIVATE src)
+target_compile_definitions(EinzigViewerReaderProbe PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(EinzigViewerReaderProbe PRIVATE einzig_miniz xmllite windowscodecs ole32 shlwapi user32)
+if(MSVC)
+    target_compile_options(EinzigViewerReaderProbe PRIVATE /W4 /permissive- /utf-8 /EHsc)
+endif()
+enable_testing()
+get_target_property(reader_ui_sources EinzigViewer SOURCES)
+list(REMOVE_ITEM reader_ui_sources src/main.cpp)
+add_executable(EinzigViewerReaderUiProbe tests/ReaderUiProbe.cpp ${reader_ui_sources})
+get_target_property(reader_ui_libraries EinzigViewer LINK_LIBRARIES)
+get_target_property(reader_ui_definitions EinzigViewer COMPILE_DEFINITIONS)
+get_target_property(reader_ui_includes EinzigViewer INCLUDE_DIRECTORIES)
+target_link_libraries(EinzigViewerReaderUiProbe PRIVATE ${reader_ui_libraries})
+target_compile_definitions(EinzigViewerReaderUiProbe PRIVATE ${reader_ui_definitions} EINZIGVIEWER_TESTING=1)
+target_include_directories(EinzigViewerReaderUiProbe PRIVATE src)
+if(reader_ui_includes)
+    target_include_directories(EinzigViewerReaderUiProbe SYSTEM PRIVATE ${reader_ui_includes})
+endif()
+if(MSVC)
+    target_compile_options(EinzigViewerReaderUiProbe PRIVATE /W4 /permissive- /utf-8 /EHsc)
+    target_link_options(EinzigViewerReaderUiProbe PRIVATE /MANIFEST:NO)
+endif()
+add_test(NAME ReaderProbe COMMAND EinzigViewerReaderProbe "${CMAKE_BINARY_DIR}/reader-probe")
+add_test(NAME ImageIoProbe COMMAND EinzigViewerImageIoProbe "${CMAKE_BINARY_DIR}/image-io-probe")
+add_test(NAME ReaderUiProbe COMMAND EinzigViewerReaderUiProbe "${CMAKE_BINARY_DIR}/reader-probe")
+set_tests_properties(ReaderUiProbe PROPERTIES DEPENDS ReaderProbe TIMEOUT 120)
 
 set_target_properties(EinzigViewer PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/out"

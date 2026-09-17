@@ -59,7 +59,8 @@ enum Command : UINT {
     CommandAbout,
     CommandLanguageChinese,
     CommandLanguageEnglish,
-    CommandExit
+    CommandExit,
+    CommandContinuous
 };
 
 const wchar_t* UiText(
@@ -90,7 +91,10 @@ App::App() : cache_(768ULL * 1024ULL * 1024ULL) {
 #endif
 }
 
-App::~App() = default;
+App::~App() {
+    if (bookCancelled_) bookCancelled_->store(true);
+    if (bookFuture_.valid()) bookFuture_.wait();
+}
 
 int App::Run(const HINSTANCE instance, const std::filesystem::path& initialFile) {
     if (!CreateDeviceIndependentResources() || !CreateMainWindow(instance)) {
@@ -217,7 +221,7 @@ HMENU App::CreateApplicationMenu() {
         !rtxMenu_ || !hdrPresetMenu_ || !helpMenu || !languageMenu_) return root;
 
     AppendMenuW(fileMenu, MF_STRING, CommandOpen,
-        UiText(english, L"開啟圖片…\tO", L"Open image…\tO"));
+        UiText(english, L"開啟圖片／EPUB…\tO", L"Open image / EPUB…\tO"));
     AppendMenuW(fileMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(fileMenu, MF_STRING, CommandExportPng,
         UiText(english, L"轉存 PNG…\tCtrl+S", L"Export PNG…\tCtrl+S"));
@@ -243,6 +247,8 @@ HMENU App::CreateApplicationMenu() {
         UiText(english, L"適合寬度\t2", L"Fit width\t2"));
     AppendMenuW(viewMenu_, MF_STRING, CommandActual,
         UiText(english, L"原始大小（100%）\t3", L"Actual size (100%)\t3"));
+    AppendMenuW(viewMenu_, MF_STRING, CommandContinuous,
+        UiText(english, L"直式連續閱讀（無間距）\tV", L"Continuous vertical reading (no gaps)\tV"));
     AppendMenuW(viewMenu_, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(viewMenu_, MF_STRING, CommandMaximize,
         UiText(english, L"視窗最大化\tM", L"Maximize window\tM"));
@@ -307,6 +313,7 @@ HMENU App::CreateApplicationMenu() {
 
 void App::UpdateMenuChecks() {
     if (viewMenu_) {
+        CheckMenuItem(viewMenu_, CommandContinuous, MF_BYCOMMAND | (continuous_ ? MF_CHECKED : MF_UNCHECKED));
         CheckMenuRadioItem(viewMenu_, CommandFit, CommandActual,
             viewMode_ == ViewMode::FitWindow ? CommandFit :
             viewMode_ == ViewMode::FitWidth ? CommandFitWidth : CommandActual,
@@ -410,6 +417,8 @@ bool App::EnsureRenderTarget() {
     if (FAILED(d2dFactory_->CreateHwndRenderTarget(
         D2D1::RenderTargetProperties(),
         D2D1::HwndRenderTargetProperties(window_, pixelSize), &renderTarget_))) return false;
+    const float dpi = static_cast<float>(GetDpiForWindow(window_));
+    renderTarget_->SetDpi(dpi, dpi);
 
     renderTarget_->CreateSolidColorBrush(D2D1::ColorF(0xF4F6F8), &textBrush_);
     renderTarget_->CreateSolidColorBrush(D2D1::ColorF(0xAAB2BD), &mutedBrush_);
@@ -420,6 +429,7 @@ bool App::EnsureRenderTarget() {
 }
 
 void App::DiscardRenderTarget() {
+    readerTiles_.clear();
     bitmap_.Reset();
     textBrush_.Reset();
     mutedBrush_.Reset();
@@ -470,7 +480,9 @@ void App::Paint() {
     renderTarget_->Clear(D2D1::ColorF(0x0B0E12));
     const D2D1_SIZE_F size = renderTarget_->GetSize();
 
-    if (bitmap_ && currentImage_) {
+    if (continuous_ && !folder_.Empty()) {
+        DrawContinuous(size);
+    } else if (bitmap_ && currentImage_) {
         const auto destination = ImageRectangle(size);
         renderTarget_->DrawBitmap(
             bitmap_.Get(), destination, 1.0F, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
@@ -479,7 +491,7 @@ void App::Paint() {
         const bool english = IsEnglish();
         const std::wstring primary = loading_
             ? UiText(english, L"正在載入圖片…", L"Loading image…")
-            : UiText(english, L"拖曳圖片到這裡，或按 O 開啟", L"Drop an image here, or press O to open");
+            : UiText(english, L"拖曳圖片或 EPUB 到這裡，或按 O 開啟", L"Drop an image or EPUB here, or press O to open");
         const std::wstring secondary = folder_.Empty()
             ? UiText(english, L"開啟後會自動索引同一資料夾，並在背景預讀前後頁",
                 L"The folder is indexed automatically and nearby pages are prefetched")
@@ -511,7 +523,7 @@ void App::DrawOverlay(const D2D1_SIZE_F& size) {
         renderTarget_->FillRectangle(D2D1::RectF(0.0F, 0.0F, size.width, 48.0F), overlayBrush_.Get());
         renderTarget_->FillRectangle(D2D1::RectF(0.0F, size.height - 38.0F, size.width, size.height), overlayBrush_.Get());
 
-        const std::wstring filename = folder_.Current().filename().wstring();
+        const std::wstring filename = folder_.Label(folder_.Index());
         renderTarget_->DrawTextW(filename.c_str(), static_cast<UINT32>(filename.size()), titleFormat_.Get(),
             D2D1::RectF(18.0F, 12.0F, size.width - 180.0F, 40.0F), textBrush_.Get());
 
@@ -533,8 +545,8 @@ void App::DrawOverlay(const D2D1_SIZE_F& size) {
                 static_cast<float>(std::max(1L, hdrClient.right)),
                 static_cast<float>(std::max(1L, hdrClient.bottom)));
         }
-        details << ViewModeName(viewMode_, english) << L"  ·  "
-                << static_cast<int>(std::lround(CurrentScale(scaleSize) * 100.0F)) << L"%";
+        details << (continuous_ ? UiText(english, L"直式連續 · SDR", L"Continuous · SDR") : ViewModeName(viewMode_, english)) << L"  ·  "
+                << static_cast<int>(std::lround((continuous_ ? readerZoom_ : CurrentScale(scaleSize)) * 100.0F)) << L"%";
         if (currentImage_) {
             details << L"  ·  " << currentImage_->width << L" × " << currentImage_->height;
             if (currentImage_->hdrToneMappedToSdr) details << L"  ·  JXR HDR → SDR/sRGB";
@@ -550,9 +562,11 @@ void App::DrawOverlay(const D2D1_SIZE_F& size) {
             else if (enhancedImage_) details << L"  ·  RTX " << enhancedImage_->width << L" × " << enhancedImage_->height;
             else details << UiText(english, L"  ·  RTX 開啟", L"  ·  RTX enabled");
         }
-        details << UiText(english,
+        details << (continuous_ ? UiText(english,
+            L"  ·  滾輪/↑↓ 捲動  Ctrl+滾輪縮放  V 單頁  I 隱藏資訊",
+            L"  ·  Wheel/↑↓ scroll  Ctrl+wheel zoom  V single page  I hide info") : UiText(english,
             L"  ·  ←/→ 翻頁  Ctrl+滾輪縮放  M 最大化  F11 全螢幕  I 隱藏資訊",
-            L"  ·  ←/→ pages  Ctrl+wheel zoom  M maximize  F11 fullscreen  I hide info");
+            L"  ·  ←/→ pages  Ctrl+wheel zoom  M maximize  F11 fullscreen  I hide info"));
         const auto detailsText = details.str();
         renderTarget_->DrawTextW(detailsText.c_str(), static_cast<UINT32>(detailsText.size()), textFormat_.Get(),
             D2D1::RectF(18.0F, size.height - 29.0F, size.width - 18.0F, size.height - 5.0F), mutedBrush_.Get());
@@ -573,11 +587,12 @@ void App::ShowOpenDialog() {
     ComPtr<IFileOpenDialog> dialog;
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return;
     const COMDLG_FILTERSPEC filters[] = {
-        {UiText(IsEnglish(), L"圖片", L"Images"), L"*.jpg;*.jpeg;*.jpe;*.png;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.heic;*.heif;*.avif;*.jxl;*.ico;*.jxr;*.wdp;*.hdp"},
+        {UiText(IsEnglish(), L"圖片與 EPUB", L"Images and EPUB"), L"*.jpg;*.jpeg;*.jpe;*.png;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.heic;*.heif;*.avif;*.jxl;*.ico;*.jxr;*.wdp;*.hdp;*.epub"},
+        {L"EPUB", L"*.epub"},
         {UiText(IsEnglish(), L"所有檔案", L"All files"), L"*.*"}
     };
     dialog->SetFileTypes(static_cast<UINT>(std::size(filters)), filters);
-    dialog->SetTitle(UiText(IsEnglish(), L"開啟圖片", L"Open image"));
+    dialog->SetTitle(UiText(IsEnglish(), L"開啟圖片或 EPUB", L"Open image or EPUB"));
     if (FAILED(dialog->Show(window_))) return;
 
     ComPtr<IShellItem> item;
@@ -588,12 +603,13 @@ void App::ShowOpenDialog() {
 }
 
 void App::ShowExportPngDialog(const bool resize) {
-    if (!currentImage_) {
+    const auto sourceImage = currentImage_;
+    if (!sourceImage) {
         SetNotice(UiText(IsEnglish(), L"請先開啟並等待圖片載入完成。", L"Open an image and wait for it to finish loading first."), 5000);
         return;
     }
 
-    const std::uint32_t sourceLongEdge = std::max(currentImage_->width, currentImage_->height);
+    const std::uint32_t sourceLongEdge = std::max(sourceImage->width, sourceImage->height);
     if (resize && sourceLongEdge <= 1) {
         SetNotice(UiText(IsEnglish(), L"這張圖片已無法再縮小。", L"This image cannot be downscaled further."), 5000);
         return;
@@ -613,8 +629,9 @@ void App::ShowExportPngDialog(const bool resize) {
     }
 
     std::wstring suggestedName = folder_.Current().stem().wstring();
+    if (const auto book = folder_.Book()) suggestedName = std::filesystem::path(book->labels[folder_.Index()]).stem().wstring();
     suggestedName += resize ? L"_small.png" :
-        (currentImage_->sourceWasJpegXr ? L"_sdr.png" : L"_export.png");
+        (sourceImage->sourceWasJpegXr ? L"_sdr.png" : L"_export.png");
     dialog->SetFileName(suggestedName.c_str());
 
     constexpr DWORD SourceSizeControl = 4200;
@@ -623,7 +640,7 @@ void App::ShowExportPngDialog(const bool resize) {
     ComPtr<IFileDialogCustomize> customize;
     if (resize && SUCCEEDED(dialog.As(&customize))) {
         const std::wstring sourceSize = std::wstring(UiText(IsEnglish(), L"原始尺寸：", L"Source size: ")) +
-            std::to_wstring(currentImage_->width) + L" × " + std::to_wstring(currentImage_->height);
+            std::to_wstring(sourceImage->width) + L" × " + std::to_wstring(sourceImage->height);
         customize->AddText(SourceSizeControl, sourceSize.c_str());
         customize->AddText(LongEdgeLabelControl, UiText(IsEnglish(),
             L"輸出長邊像素（自動保持比例）：", L"Output long edge in pixels (aspect ratio is preserved):"));
@@ -662,46 +679,46 @@ void App::ShowExportPngDialog(const bool resize) {
     CoTaskMemFree(path);
 
     std::wstring error;
-    if (!ImageExporter::SavePng(*currentImage_, outputPath, requestedLongEdge, error)) {
+    if (!ImageExporter::SavePng(*sourceImage, outputPath, requestedLongEdge, error)) {
         const std::wstring message = std::wstring(UiText(IsEnglish(), L"PNG 儲存失敗：\n\n", L"PNG export failed:\n\n")) + error;
         MessageBoxW(window_, message.c_str(), ProductName, MB_OK | MB_ICONERROR);
         return;
     }
 
-    std::uint32_t outputWidth = currentImage_->width;
-    std::uint32_t outputHeight = currentImage_->height;
+    std::uint32_t outputWidth = sourceImage->width;
+    std::uint32_t outputHeight = sourceImage->height;
     if (requestedLongEdge > 0) {
         const double scale = static_cast<double>(requestedLongEdge) / static_cast<double>(sourceLongEdge);
-        outputWidth = std::max<std::uint32_t>(1, static_cast<std::uint32_t>(std::llround(currentImage_->width * scale)));
-        outputHeight = std::max<std::uint32_t>(1, static_cast<std::uint32_t>(std::llround(currentImage_->height * scale)));
+        outputWidth = std::max<std::uint32_t>(1, static_cast<std::uint32_t>(std::llround(sourceImage->width * scale)));
+        outputHeight = std::max<std::uint32_t>(1, static_cast<std::uint32_t>(std::llround(sourceImage->height * scale)));
     }
     SetNotice(std::wstring(UiText(IsEnglish(), L"已儲存 PNG：", L"PNG saved: ")) +
         std::to_wstring(outputWidth) + L" × " + std::to_wstring(outputHeight), 5000);
 }
 
 bool App::OpenImage(const std::filesystem::path& file) {
+    if (_wcsicmp(file.extension().c_str(), L".epub") == 0) {
+        StartBookOpen(file);
+        return true;
+    }
+    if (bookCancelled_) bookCancelled_->store(true);
+    pendingBook_.clear();
     if (!folder_.Open(file)) {
         SetNotice(UiText(IsEnglish(),
             L"找不到圖片，或檔案格式不在支援清單中。",
             L"The image was not found or its format is unsupported."), 5000);
         return false;
     }
-    currentImage_.reset();
-    enhancedImage_.reset();
-    showOriginalForComparison_ = false;
-    ++enhancementGeneration_;
-    bitmap_.Reset();
-    zoomFactor_ = 1.0F;
-    pan_ = {0.0F, 0.0F};
-    loading_ = true;
-    ScheduleNeighborhood();
-    ApplyCurrentIfReady();
-    UpdateWindowTitle();
-    InvalidateRect(window_, nullptr, FALSE);
+    ResetDocument();
     return true;
 }
 
 void App::Navigate(const int delta) {
+    if (continuous_) {
+        if (!folder_.Empty()) JumpContinuous(static_cast<std::size_t>(std::clamp(
+            static_cast<long long>(folder_.Index()) + delta, 0LL, static_cast<long long>(folder_.Size() - 1))));
+        return;
+    }
     if (!folder_.Move(delta)) return;
     currentImage_.reset();
     enhancedImage_.reset();
@@ -718,6 +735,7 @@ void App::Navigate(const int delta) {
 }
 
 void App::NavigateTo(const std::size_t index) {
+    if (continuous_) { JumpContinuous(index); return; }
     if (!folder_.MoveTo(index)) return;
     currentImage_.reset();
     enhancedImage_.reset();
@@ -734,6 +752,7 @@ void App::NavigateTo(const std::size_t index) {
 }
 
 void App::ScheduleNeighborhood() {
+    if (continuous_) { RefreshContinuous(); return; }
     if (folder_.Empty()) return;
     cache_.ClearQueued();
     std::vector<std::wstring> pinned;
@@ -748,17 +767,18 @@ void App::ScheduleNeighborhood() {
         const long long previous = current - distance;
         if (next < count) {
             cache_.Request(folder_.At(static_cast<std::size_t>(next)).wstring(), priority);
-            pinned.push_back(folder_.At(static_cast<std::size_t>(next)).wstring());
+            if (distance <= 1) pinned.push_back(folder_.At(static_cast<std::size_t>(next)).wstring());
         }
         if (previous >= 0) {
             cache_.Request(folder_.At(static_cast<std::size_t>(previous)).wstring(), priority - 1);
-            pinned.push_back(folder_.At(static_cast<std::size_t>(previous)).wstring());
+            if (distance <= 1) pinned.push_back(folder_.At(static_cast<std::size_t>(previous)).wstring());
         }
     }
     cache_.Pin(pinned);
 }
 
 void App::ApplyCurrentIfReady() {
+    if (continuous_) { RefreshContinuous(); return; }
     if (folder_.Empty()) return;
     const auto path = folder_.Current().wstring();
     auto image = cache_.TryGet(path);
@@ -780,6 +800,7 @@ void App::ApplyCurrentIfReady() {
 }
 
 void App::RequestEnhancement() {
+    if (continuous_) return;
     if (!enhancementEnabled_ || !enhancementWorker_ || !currentImage_) return;
 #if EINZIGVIEWER_WITH_RTX
     if (hdrRetirement_ && !hdrRetirement_->load(std::memory_order_acquire)) {
@@ -853,6 +874,10 @@ void App::ApplyEnhancementResult() {
 }
 
 void App::ToggleEnhancement() {
+    if (continuous_) {
+        SetContinuous(false);
+        SetNotice(UiText(IsEnglish(), L"已切換單頁模式以使用 RTX 增強。", L"Switched to single-page mode for RTX enhancement."), 5000);
+    }
     if (hdrEnabled_) DisableHdrMode();
     if (enhancementEnabled_) {
         enhancementEnabled_ = false;
@@ -896,6 +921,10 @@ void App::RecreateEnhancementBackend() {
 }
 
 void App::ToggleHdrMode() {
+    if (continuous_) {
+        SetContinuous(false);
+        SetNotice(UiText(IsEnglish(), L"已切換單頁模式以使用 RTX HDR。", L"Switched to single-page mode for RTX HDR."), 5000);
+    }
     if (hdrEnabled_) {
         DisableHdrMode();
         SetNotice(UiText(IsEnglish(),
@@ -1057,6 +1086,7 @@ void App::ClampHdrZoom() {
 
 void App::UploadCurrentBitmap() {
     bitmap_.Reset();
+    if (continuous_) return;
 #if EINZIGVIEWER_WITH_RTX
     if (hdrEnabled_) {
         if (hdrPresenter_) hdrPresenter_->Invalidate();
@@ -1076,6 +1106,7 @@ void App::UploadCurrentBitmap() {
 }
 
 void App::SetViewMode(const ViewMode mode) {
+    if (continuous_) SetContinuous(false);
     viewMode_ = mode;
     zoomFactor_ = 1.0F;
     pan_ = {0.0F, 0.0F};
@@ -1094,6 +1125,17 @@ void App::SetWheelBehavior(const WheelBehavior behavior) {
 }
 
 void App::ZoomAt(const float factor, const POINT clientPoint) {
+    if (continuous_) {
+        const double oldWidth = ReaderWidth();
+        const double dpi = static_cast<double>(GetDpiForWindow(window_)) / 96;
+        const double y = std::clamp(clientPoint.y / dpi - (showInfo_ ? 48 : 0), 0.0, ReaderHeight());
+        const double anchor = scrollPosition_ + y / oldWidth;
+        readerZoom_ = std::clamp(readerZoom_ * factor, 0.1F, 5.0F);
+        scrollPosition_ = anchor - y / ReaderWidth();
+        readerTiles_.clear();
+        RefreshContinuous();
+        return;
+    }
     if (!currentImage_ || factor <= 0.0F) return;
     const D2D1_SIZE_F size = renderTarget_ ? renderTarget_->GetSize() : D2D1::SizeF(
         ClientRectF(window_).right, ClientRectF(window_).bottom);
@@ -1227,7 +1269,7 @@ void App::ShowContextMenu(const POINT screenPoint) {
         return;
     }
     AppendMenuW(menu, MF_STRING, CommandOpen,
-        UiText(english, L"開啟圖片…\tO", L"Open image…\tO"));
+        UiText(english, L"開啟圖片／EPUB…\tO", L"Open image / EPUB…\tO"));
     AppendMenuW(menu, MF_STRING, CommandExportPng,
         UiText(english, L"轉存 PNG…\tCtrl+S", L"Export PNG…\tCtrl+S"));
     AppendMenuW(menu, MF_STRING, CommandResizeExportPng,
@@ -1244,6 +1286,8 @@ void App::ShowContextMenu(const POINT screenPoint) {
         UiText(english, L"適合寬度\t2", L"Fit width\t2"));
     AppendMenuW(menu, MF_STRING | (viewMode_ == ViewMode::ActualSize ? MF_CHECKED : 0), CommandActual,
         UiText(english, L"原始大小\t3", L"Actual size\t3"));
+    AppendMenuW(menu, MF_STRING | (continuous_ ? MF_CHECKED : 0), CommandContinuous,
+        UiText(english, L"直式連續閱讀（無間距）\tV", L"Continuous vertical reading (no gaps)\tV"));
     AppendMenuW(menu, MF_STRING | (IsZoomed(window_) && !fullscreen_ ? MF_CHECKED : 0), CommandMaximize,
         UiText(english, L"視窗最大化\tM", L"Maximize window\tM"));
     AppendMenuW(menu, MF_STRING | (fullscreen_ ? MF_CHECKED : 0), CommandFullscreen,
@@ -1287,7 +1331,7 @@ void App::SetNotice(std::wstring text, const DWORD milliseconds) {
 void App::UpdateWindowTitle() {
     std::wstring title = ProductName;
     if (!folder_.Empty()) {
-        title = folder_.Current().filename().wstring();
+        title = folder_.Label(folder_.Index());
         if (hdrEnabled_) {
             static constexpr const wchar_t* chinesePresets[]{L"標準", L"鮮明", L"柔和"};
             static constexpr const wchar_t* englishPresets[]{L"Standard", L"Vivid", L"Gentle"};
@@ -1327,6 +1371,8 @@ void App::LoadSettings() {
     }
     const auto native = path.wstring();
     showInfo_ = GetPrivateProfileIntW(L"view", L"showInfo", 1, native.c_str()) != 0;
+    continuous_ = GetPrivateProfileIntW(L"view", L"continuous", 0, native.c_str()) != 0;
+    if (continuous_) ShowScrollBar(window_, SB_VERT, TRUE);
     const int mode = GetPrivateProfileIntW(L"view", L"mode", 0, native.c_str());
     if (mode >= 0 && mode <= 2) viewMode_ = static_cast<ViewMode>(mode);
     const int wheel = GetPrivateProfileIntW(L"input", L"wheelBehavior", 0, native.c_str());
@@ -1371,6 +1417,7 @@ void App::SaveSettings() const {
     write(L"window", L"width", rectangle.right - rectangle.left);
     write(L"window", L"height", rectangle.bottom - rectangle.top);
     write(L"view", L"showInfo", showInfo_ ? 1 : 0);
+    write(L"view", L"continuous", continuous_ ? 1 : 0);
     write(L"view", L"mode", static_cast<int>(viewMode_));
     write(L"input", L"wheelBehavior", static_cast<int>(wheelBehavior_));
     write(L"ui", L"language", static_cast<int>(language_));
@@ -1422,6 +1469,7 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         return 1;
     case WM_SIZE:
         if (renderTarget_) renderTarget_->Resize(D2D1::SizeU(LOWORD(lParam), HIWORD(lParam)));
+        if (continuous_ && wParam != SIZE_MINIMIZED) RefreshContinuous();
         if (hdrEnabled_) UpdateHdrSurfaceBounds();
         if (hdrEnabled_ && wParam != SIZE_MINIMIZED && currentImage_) ClampHdrZoom();
         if (enhancementEnabled_ && wParam != SIZE_MINIMIZED && currentImage_) {
@@ -1431,6 +1479,7 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         InvalidateRect(window_, nullptr, FALSE);
         return 0;
     case WM_DPICHANGED: {
+        if (renderTarget_) renderTarget_->SetDpi(static_cast<float>(HIWORD(wParam)), static_cast<float>(HIWORD(wParam)));
         const auto* rectangle = reinterpret_cast<RECT*>(lParam);
         SetWindowPos(window_, nullptr, rectangle->left, rectangle->top,
             rectangle->right - rectangle->left, rectangle->bottom - rectangle->top,
@@ -1463,12 +1512,20 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         dragging_ = true;
         dragOrigin_ = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
         panOrigin_ = pan_;
+        if (continuous_) { dragScrollOrigin_ = scrollPosition_; panOrigin_.x = readerPanX_; }
         SetCapture(window_);
         return 0;
     case WM_MOUSEMOVE:
         if (fullscreen_) ArmFullscreenCursorHide();
         else ShowFullscreenCursor();
         if (dragging_) {
+            if (continuous_) {
+                const double dpi = static_cast<double>(GetDpiForWindow(window_)) / 96;
+                readerPanX_ = panOrigin_.x + static_cast<float>((GET_X_LPARAM(lParam) - dragOrigin_.x) / dpi);
+                scrollPosition_ = dragScrollOrigin_ - (GET_Y_LPARAM(lParam) - dragOrigin_.y) / dpi / ReaderWidth();
+                RefreshContinuous();
+                return 0;
+            }
             pan_.x = panOrigin_.x + static_cast<float>(GET_X_LPARAM(lParam) - dragOrigin_.x);
             pan_.y = panOrigin_.y + static_cast<float>(GET_Y_LPARAM(lParam) - dragOrigin_.y);
             InvalidateRect(window_, nullptr, FALSE);
@@ -1484,14 +1541,22 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         dragging_ = false;
         return 0;
     case WM_MOUSEWHEEL: {
-        const int steps = GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
+        const int delta = GET_WHEEL_DELTA_WPARAM(wParam);
         const bool controlZoom = (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL) != 0;
+        if (continuous_ && !controlZoom) {
+            UINT lines = 3; SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
+            ScrollContinuous(-static_cast<double>(delta) / WHEEL_DELTA * (lines == WHEEL_PAGESCROLL ? ReaderHeight() * 0.9 : lines * 32.0));
+            return 0;
+        }
         if (wheelBehavior_ == WheelBehavior::Zoom || controlZoom) {
             POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             ScreenToClient(window_, &point);
-            ZoomAt(std::pow(1.15F, static_cast<float>(steps)), point);
-        } else if (steps != 0) {
-            Navigate(-steps);
+            ZoomAt(std::pow(1.15F, static_cast<float>(delta) / WHEEL_DELTA), point);
+        } else {
+            wheelRemainder_ += delta;
+            const int steps = wheelRemainder_ / WHEEL_DELTA;
+            wheelRemainder_ %= WHEEL_DELTA;
+            if (steps != 0) Navigate(-steps);
         }
         return 0;
     }
@@ -1512,7 +1577,21 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         }
         break;
     case WM_KEYDOWN: {
+        if (wParam == VK_ESCAPE && bookCancelled_) {
+            bookCancelled_->store(true); pendingBook_.clear(); notice_.clear();
+            InvalidateRect(window_, nullptr, FALSE); return 0;
+        }
+        if (continuous_) {
+            if (wParam == VK_UP || wParam == VK_DOWN) { ScrollContinuous(wParam == VK_UP ? -48 : 48); return 0; }
+            if (wParam == VK_PRIOR || wParam == VK_NEXT || wParam == VK_SPACE) {
+                const bool previous = wParam == VK_PRIOR || (wParam == VK_SPACE && (GetKeyState(VK_SHIFT) & 0x8000));
+                ScrollContinuous(ReaderHeight() * (previous ? -0.9 : 0.9)); return 0;
+            }
+            if (wParam == VK_HOME) { JumpContinuous(0); return 0; }
+            if (wParam == VK_END && !folder_.Empty()) { JumpContinuous(folder_.Size() - 1, true); return 0; }
+        }
         switch (wParam) {
+        case L'V': SetContinuous(!continuous_); return 0;
         case VK_LEFT: case VK_PRIOR: case VK_BACK: Navigate(-1); return 0;
         case VK_RIGHT: case VK_NEXT: case VK_SPACE: Navigate(1); return 0;
         case VK_HOME: if (!folder_.Empty()) NavigateTo(0); return 0;
@@ -1536,6 +1615,7 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
             break;
         case L'I':
             showInfo_ = !showInfo_;
+            if (continuous_) RefreshContinuous();
             if (hdrEnabled_) UpdateHdrSurfaceBounds();
             UpdateMenuChecks();
             InvalidateRect(window_, nullptr, FALSE);
@@ -1580,6 +1660,7 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         return 0;
     case WM_COMMAND:
         switch (LOWORD(wParam)) {
+        case CommandContinuous: SetContinuous(!continuous_); break;
         case CommandOpen: ShowOpenDialog(); break;
         case CommandExportPng: ShowExportPngDialog(false); break;
         case CommandResizeExportPng: ShowExportPngDialog(true); break;
@@ -1594,6 +1675,7 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         case CommandFullscreen: ToggleFullscreen(); break;
         case CommandToggleInfo:
             showInfo_ = !showInfo_;
+            if (continuous_) RefreshContinuous();
             if (hdrEnabled_) UpdateHdrSurfaceBounds();
             UpdateMenuChecks();
             InvalidateRect(window_, nullptr, FALSE);
@@ -1609,7 +1691,9 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         case CommandLanguageEnglish: SetLanguage(UiLanguage::English); break;
         case CommandAbout:
             MessageBoxW(window_,
-                L"EinzigViewer 0.6.0 (RTX VSR + HDR)\n\n"
+                L"EinzigViewer 0.7.0 (EPUB / RTX VSR + HDR)\n\n"
+                L"V：直式連續閱讀；EPUB 依章節順序讀取圖片。\n"
+                L"V: Continuous vertical reading; EPUB images in spine order.\n\n"
                 L"【繁體中文】\n"
                 L"針對漫畫文字與圖片放大的原生 Windows 圖片檢視器，支援 NVIDIA RTX Video VSR 與 HDR。\n"
                 L"EinzigViewer 的 Einzig 取自德文「獨特／唯一」，Viewer 表示圖片檢視器。\n"
@@ -1639,6 +1723,7 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         }
         return 0;
     case WM_TIMER:
+        if (wParam == 5) { PollBookOpen(); return 0; }
         if (wParam == FullscreenCursorTimer) {
             HideFullscreenCursorIfEligible();
             return 0;
@@ -1666,9 +1751,28 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         }
         return 0;
     case WM_CLOSE:
+        if (bookCancelled_) bookCancelled_->store(true);
         SaveSettings();
         DestroyWindow(window_);
         return 0;
+    case WM_VSCROLL:
+        if (continuous_) {
+            SCROLLINFO info{sizeof(info), SIF_TRACKPOS}; GetScrollInfo(window_, SB_VERT, &info);
+            switch (LOWORD(wParam)) {
+            case SB_LINEUP: ScrollContinuous(-48); break;
+            case SB_LINEDOWN: ScrollContinuous(48); break;
+            case SB_PAGEUP: ScrollContinuous(-ReaderHeight() * 0.9); break;
+            case SB_PAGEDOWN: ScrollContinuous(ReaderHeight() * 0.9); break;
+            case SB_TOP: JumpContinuous(0); break;
+            case SB_BOTTOM: if (!folder_.Empty()) JumpContinuous(folder_.Size() - 1, true); break;
+            case SB_THUMBTRACK: case SB_THUMBPOSITION:
+                scrollPosition_ = static_cast<double>(info.nTrackPos) / 1000001 * layout_.Total();
+                RefreshContinuous(); break;
+            default: break;
+            }
+            return 0;
+        }
+        break;
     case WM_DESTROY:
         KillTimer(window_, FullscreenCursorTimer);
         ShowFullscreenCursor();

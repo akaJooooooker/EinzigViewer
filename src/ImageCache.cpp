@@ -33,10 +33,10 @@ void ImageCache::Request(const std::wstring& path, const int priority) {
     if (path.empty()) return;
     {
         std::scoped_lock lock(mutex_);
-        if (cache_.contains(path) || pending_.contains(path)) return;
+        if (cache_.contains(path) || pending_.contains(path) || errors_.contains(path)) return;
         pending_.insert(path);
         errors_.erase(path);
-        tasks_.push(Task{path, priority, sequence_++});
+        tasks_.push(Task{path, priority, sequence_++, sourceLease_});
     }
     condition_.notify_one();
 }
@@ -47,6 +47,13 @@ std::shared_ptr<ImageData> ImageCache::TryGet(const std::wstring& path) {
     if (found == cache_.end()) return {};
     found->second.access = ++access_;
     return found->second.image;
+}
+
+void ImageCache::SetSourceLease(std::shared_ptr<void> lease) {
+    ClearQueued();
+    std::scoped_lock lock(mutex_);
+    sourceLease_ = std::move(lease);
+    errors_.clear();
 }
 
 std::wstring ImageCache::ErrorFor(const std::wstring& path) const {
@@ -87,7 +94,9 @@ void ImageCache::WorkerLoop() {
         }
 
         std::wstring error;
-        auto image = WicDecoder::Decode(task.path, error);
+        std::shared_ptr<ImageData> image;
+        try { image = WicDecoder::Decode(task.path, error); }
+        catch (...) { error = L"圖片解碼失敗或記憶體不足。 / Image decoding failed or ran out of memory."; }
         HWND notify = nullptr;
         {
             std::scoped_lock lock(mutex_);
@@ -113,8 +122,9 @@ void ImageCache::TrimLocked() {
     while (currentBytes_ > maximumBytes_) {
         auto oldest = cache_.end();
         for (auto iterator = cache_.begin(); iterator != cache_.end(); ++iterator) {
-            if (pinned_.contains(iterator->first)) continue;
-            if (oldest == cache_.end() || iterator->second.access < oldest->second.access) oldest = iterator;
+            if (oldest == cache_.end() ||
+                (pinned_.contains(oldest->first) && !pinned_.contains(iterator->first)) ||
+                (pinned_.contains(oldest->first) == pinned_.contains(iterator->first) && iterator->second.access < oldest->second.access)) oldest = iterator;
         }
         if (oldest == cache_.end()) break;
         currentBytes_ -= oldest->second.image->ByteSize();

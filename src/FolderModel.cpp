@@ -21,20 +21,20 @@ bool FolderModel::Open(const std::filesystem::path& selectedFile) {
         return false;
     }
 
-    directory_ = absolute.parent_path();
-    files_.clear();
+    auto directory = absolute.parent_path();
+    std::vector<std::filesystem::path> files;
 
     std::filesystem::directory_iterator iterator(
-        directory_, std::filesystem::directory_options::skip_permission_denied, ec);
+        directory, std::filesystem::directory_options::skip_permission_denied, ec);
     const std::filesystem::directory_iterator end;
     for (; !ec && iterator != end; iterator.increment(ec)) {
         if (iterator->is_regular_file(ec) && IsSupportedImage(iterator->path())) {
-            files_.push_back(iterator->path().lexically_normal());
+            files.push_back(iterator->path().lexically_normal());
         }
         ec.clear();
     }
 
-    std::ranges::sort(files_, [](const auto& left, const auto& right) {
+    std::ranges::sort(files, [](const auto& left, const auto& right) {
         const int result = StrCmpLogicalW(left.filename().c_str(), right.filename().c_str());
         if (result != 0) {
             return result < 0;
@@ -42,16 +42,28 @@ bool FolderModel::Open(const std::filesystem::path& selectedFile) {
         return left.native() < right.native();
     });
 
-    const auto selected = std::ranges::find_if(files_, [&](const auto& file) {
+    const auto selected = std::ranges::find_if(files, [&](const auto& file) {
         return EqualsPath(file, absolute);
     });
-    if (selected == files_.end()) {
-        files_.clear();
-        return false;
-    }
+    if (selected == files.end()) return false;
 
-    index_ = static_cast<std::size_t>(std::distance(files_.begin(), selected));
+    index_ = static_cast<std::size_t>(std::distance(files.begin(), selected));
+    files_ = std::move(files);
+    directory_ = std::move(directory);
+    book_.reset();
     return true;
+}
+
+void FolderModel::OpenBook(std::shared_ptr<EpubBook> book) {
+    files_ = book->pages;
+    directory_ = book->source.parent_path();
+    index_ = 0;
+    book_ = std::move(book);
+}
+
+std::wstring FolderModel::Label(const std::size_t index) const {
+    return book_ ? book_->source.filename().wstring() + L" · " + book_->labels.at(index)
+                 : files_.at(index).filename().wstring();
 }
 
 const std::filesystem::path& FolderModel::Current() const { return files_.at(index_); }

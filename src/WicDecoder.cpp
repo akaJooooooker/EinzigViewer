@@ -89,12 +89,13 @@ bool ValidateDimensions(
     const UINT width, const UINT height, const std::uint64_t bytesPerPixel,
     std::uint64_t& stride, std::uint64_t& size, HRESULT& result) {
     stride = static_cast<std::uint64_t>(width) * bytesPerPixel;
-    size = stride * static_cast<std::uint64_t>(height);
+    constexpr std::uint64_t maximumDecodeBytes = 512ULL * 1024 * 1024;
     if (width == 0 || height == 0 ||
-        stride > std::numeric_limits<UINT>::max() || size > std::numeric_limits<UINT>::max()) {
+        stride > maximumDecodeBytes || height > maximumDecodeBytes / stride) {
         result = WINCODEC_ERR_IMAGESIZEOUTOFRANGE;
         return false;
     }
+    size = stride * static_cast<std::uint64_t>(height);
     return true;
 }
 
@@ -262,7 +263,7 @@ HRESULT DecodeStandard(
 std::shared_ptr<ImageData> WicDecoder::Decode(const std::wstring& path, std::wstring& error) {
     error.clear();
     const HRESULT comResult = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    const bool uninitialize = SUCCEEDED(comResult);
+    struct ComScope { HRESULT result; ~ComScope() { if (SUCCEEDED(result)) CoUninitialize(); } } scope{comResult};
 
     ComPtr<IWICImagingFactory> factory;
     HRESULT result = CreateFactory(factory);
@@ -304,6 +305,5 @@ std::shared_ptr<ImageData> WicDecoder::Decode(const std::wstring& path, std::wst
         image.reset();
         error = HResultMessage(result);
     }
-    if (uninitialize) CoUninitialize();
     return image;
 }

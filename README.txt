@@ -1,8 +1,25 @@
-EinzigViewer 0.6.0
+EinzigViewer 0.7.0
 ================
 
 繁體中文
 --------
+
+0.7.0 新功能：直式閱讀與 EPUB
+- 按 V 或從檢視／右鍵選單啟用「直式連續閱讀（無間距）」。圖片首尾相接，
+  滾輪／精密觸控板連續捲動，左鍵拖曳，Ctrl+滾輪縮放。
+- ↑／↓ 小幅移動；Page Up／Page Down／Space 捲一個畫面；Shift+Space 往上。
+  ←／→ 跳相鄰圖片，Home／End 到開頭／底部，1／2／3 回單頁模式。
+- 按 O 或拖入 EPUB，在背景依章節及章節內圖片順序載入，自動進入直式模式。
+  支援 XHTML img、SVG 包裝中的點陣圖片；按 Esc 可取消，開啟別本會取代前次請求。
+- 資訊列指出畫面上緣所在頁面，Ctrl+S／Ctrl+Shift+S 可轉存／縮小該頁 PNG。
+- EPUB 不呈現文字／CSS 排版或純向量 SVG，不支援 DRM，不下載外部圖片。
+  字型混淆不影響圖片閱讀。ZIP 最多 50,000 項，單項解壓縮最多 256 MiB，
+  總計最多 4 GiB。暫存圖片在切書且背景解碼完成後或正常結束程式時清除。
+- 直式模式目前為 SDR，無須 RTX 顯卡。R／H 會切回單頁 RTX VSR／HDR；
+  在 RTX 模式按 V 會回到直式 SDR 並提示。尚未有多頁 HDR 合成。
+- 解碼快取硬上限 768 MiB；額外 GPU 分段快取上限 96 MiB，長圖只上傳可見區。
+  上限不含解碼工作緩衝區及目前圖片。單一解碼緩衝區上限 512 MiB。
+- 修正失敗圖片反覆解碼；重新開啟才重試。開錯檔案時保留目前閱讀內容。
 
 簡介
 EinzigViewer 是一款針對漫畫文字、線條與一般圖片放大的原生 64 位元 Windows
@@ -127,6 +144,26 @@ RTX SDKs LICENSE 約束，並不改採 EinzigViewer 的授權。詳見 THIRD_PAR
 
 English
 -------
+
+New in 0.7.0: Continuous reading and EPUB
+- Press V or choose View / right-click -> Continuous vertical reading (no gaps).
+  Images join edge to edge. Wheel/precision touchpad scroll, drag pans, Ctrl+wheel zooms.
+- Up/Down move a little; Page Up/Page Down/Space scroll one screen; Shift+Space upward.
+  Left/Right jump to adjacent images, Home/End to beginning/bottom, 1/2/3 to single-page.
+- Open/drop EPUB to load images asynchronously in spine/chapter order and automatically
+  enter continuous mode. XHTML img and SVG-wrapped raster images are supported.
+  Esc cancels; a newer open request replaces the old one. Failed opens keep current content.
+- The information bar identifies the page at the viewport top. Ctrl+S / Ctrl+Shift+S
+  export or downscale that page as PNG.
+- EPUB images only: no text/CSS layout, vector-only SVG, DRM decryption or remote images.
+  Font obfuscation is allowed. ZIP limits: 50,000 entries, 256 MiB unpacked per entry,
+  4 GiB total. Temporary images are removed after switching books once decoders finish,
+  or on normal exit.
+- Continuous mode is SDR and needs no RTX GPU. R/H switch to single-page RTX VSR/HDR;
+  V returns from RTX to continuous SDR with a notice. Multi-page HDR is not implemented.
+- Hard 768 MiB decoded cache and an additional 96 MiB GPU tile cache; tall images upload
+  only visible sections. Active decode buffers/current image are additional memory.
+  Individual decode buffers are limited to 512 MiB. Failed images retry only on reopen.
 
 Overview
 EinzigViewer is a native 64-bit Windows image viewer for enlarged comic text,

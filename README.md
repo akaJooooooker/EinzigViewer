@@ -4,7 +4,21 @@
 
 EinzigViewer 是一款針對漫畫文字、線條與一般圖片放大的原生 Windows 圖片檢視器，並整合 NVIDIA RTX Video VSR 與 HDR。VSR 是超解析度放大增強，不是內容修復；它不會憑空還原原圖沒有的細節，但對低解析度漫畫中的細字、網點與邊緣通常特別有幫助。開啟任意圖片後，程式會自動索引同資料夾、依自然檔名排序，並在背景預先解碼前後各 8 張圖片。
 
-目前版本：**0.6.0 高精度 HDR JXR → SDR PNG、圖片縮小轉存，以及主視窗整合式 RTX Video VSR／HDR 顯示**。
+目前版本：**0.7.0：無間距直式連續閱讀、EPUB 圖片閱讀、長圖分段顯示與快取可靠性改善**。保留 HDR JXR → SDR PNG、圖片縮小轉存與單頁 RTX VSR／HDR。
+
+## 0.7.0：直式閱讀與 EPUB
+
+按 **V**，或在「檢視／右鍵 → 直式連續閱讀（無間距）」切換。圖片會適合閱讀寬度、首尾相接，滾輪與精密觸控板可連續移動；左鍵可拖曳，Ctrl+滾輪縮放。↑／↓小幅移動，Page Up／Page Down／Space 捲動約一個畫面，Shift+Space 往上；←／→跳到相鄰圖片，Home／End 到整份內容的開頭／底部。1／2／3 可回到單頁顯示。模式會保存。
+
+按 O 或拖入 `.epub` 即可在背景載入，並自動進入直式模式。圖片依 EPUB 的 spine 章節順序、章節內出現順序排列，支援 XHTML `img` 與 SVG 包裝中的點陣圖片；保留重複出現的頁面，不用檔名重排整本書。載入時可按 Esc 取消，或開啟另一個檔案；失敗時保留目前內容。閱讀器不下載書內外部資源，也不執行腳本。
+
+資訊列標示的是畫面上緣所在頁面；Ctrl+S／Ctrl+Shift+S 可將該頁轉存 PNG／縮小轉存。EPUB 圖片暫存於每本書獨立的系統暫存目錄，切換書籍且背景解碼結束後清除，正常結束程式也會清除。
+
+直式模式目前使用 **SDR**，不需要 NVIDIA GPU。按 R／H 會切回單頁 RTX VSR／HDR；在 RTX 模式按 V 則返回直式 SDR 並提示。多頁 HDR 合成尚未實作。
+
+此版本改善記憶體控制：768 MiB 解碼快取採硬上限、僅優先保留目前可見頁面；額外 Direct2D 分段快取上限為 96 MiB，長圖按可見區分段上傳。快取上限不包含解碼中的工作緩衝區與目前顯示圖片。解碼失敗不再於捲動時反覆重試，重新開啟才重試；單一解碼緩衝区上限 512 MiB，避免異常尺寸大量配置。
+
+EPUB 圖片閱讀不包含文字／CSS 排版、純向量 SVG、DRM 解密。字型混淆不影響圖片閱讀。ZIP 上限為 50,000 項目、單項解壓縮 256 MiB、總計 4 GiB；不支援的書籍會顯示錯誤。閱讀順序參考 [W3C EPUB 3.3](https://www.w3.org/TR/epub-33/)。
 
 > **專案更名：** 自 0.6.0 起，專案由 Eidolyx 更名為 **EinzigViewer**；0.4.4 與更早版本曾使用 MiraView。*Einzig* 是德文的「獨特／唯一」，Viewer 表示圖片檢視器。第一次啟動新版時，若新設定尚不存在，會依序承接 Eidolyx、MiraView 的設定；關閉後保存到 `%LOCALAPPDATA%\EinzigViewer\settings.ini`。
 
@@ -20,7 +34,7 @@ EinzigViewer 是一款針對漫畫文字、線條與一般圖片放大的原生 
 - Windows 邏輯式自然排序：`1, 2, 3, 10`，不會排成 `1, 10, 2, 3`。
 - 4 條背景解碼工作執行緒。
 - 前後各 8 張的方向感知預讀，下一張優先於上一張。
-- 768 MB LRU 記憶體快取；眼前頁面與鄰近頁面固定保留。
+- 768 MiB LRU 解碼快取；目前頁面優先保留，超出預算仍會回收。
 - 快速連按翻頁時清除過時的排隊工作，眼前頁面永遠是最高優先。
 - Direct2D 顯示、適合視窗、適合寬度、100%、滑鼠拖曳與游標定位縮放。
 - 原生 Windows 選單列（檔案、瀏覽、檢視、RTX、說明）、右鍵選單與拖放開圖。
@@ -48,7 +62,7 @@ EinzigViewer 是一款針對漫畫文字、線條與一般圖片放大的原生 
 
 ## 執行
 
-一般使用者可從 [GitHub Releases](https://github.com/akaJooooooker/EinzigViewer/releases/latest) 下載 `EinzigViewer-0.6.0-win-x64.zip`，完整解壓縮後直接執行 `EinzigViewer.exe`。請保留 `nvngx_vsr.dll` 與 `nvngx_truehdr.dll` 在執行檔旁，RTX 功能才可使用；0.6.0 不需要獨立的 HDR 輔助執行檔。壓縮檔內附中英雙語 `README.txt`。
+一般使用者可從 [GitHub Releases](https://github.com/akaJooooooker/EinzigViewer/releases/latest) 下載 `EinzigViewer-0.7.0-win-x64.zip`，完整解壓縮後直接執行 `EinzigViewer.exe`。請保留 `nvngx_vsr.dll` 與 `nvngx_truehdr.dll` 在執行檔旁，RTX 功能才可使用。壓縮檔內附中英雙語 `README.txt`。
 
 Release 執行檔位於：
 
@@ -66,7 +80,8 @@ out\EinzigViewer.exe
 
 | 操作 | 功能 |
 |---|---|
-| `O` | 開啟圖片 |
+| `O` | 開啟圖片或 EPUB |
+| `V` | 切換無間距直式連續閱讀；普通滾輪在此模式固定捲動 |
 | `Ctrl+S` | 以原尺寸轉存一般 sRGB PNG；HDR JXR 會先完成 HDR → SDR 色調映射 |
 | `Ctrl+Shift+S` | 輸入目標長邊，保持比例縮小並轉存 PNG |
 | `←` / `Page Up` / `Backspace` | 上一張 |
@@ -128,6 +143,8 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
 也可用 Visual Studio 直接開啟此資料夾或 `CMakeLists.txt`。
 
 ## 目前限制
+
+- 直式閱讀為 SDR；RTX VSR／HDR 使用單頁模式。EPUB 為圖片閱讀，不呈現文字／CSS 排版或純向量 SVG，不支援 DRM。
 
 - GIF／動態 WebP 目前只顯示第一幀。
 - WebP、HEIC、AVIF、JPEG XL 是否可開啟取決於 Windows 已安裝的 WIC codec。

@@ -28,6 +28,7 @@ public:
     ImageCache& operator=(const ImageCache&) = delete;
 
     void SetNotificationWindow(HWND window);
+    void SetSourceLease(std::shared_ptr<void> lease);
     void Request(const std::wstring& path, int priority);
     [[nodiscard]] std::shared_ptr<ImageData> TryGet(const std::wstring& path);
     [[nodiscard]] std::wstring ErrorFor(const std::wstring& path) const;
@@ -45,6 +46,7 @@ private:
         std::wstring path;
         int priority = 0;
         std::uint64_t sequence = 0;
+        std::shared_ptr<void> sourceLease;
     };
 
     struct TaskLess {
@@ -71,5 +73,6 @@ private:
     std::uint64_t access_ = 0;
     HWND notificationWindow_ = nullptr;
     bool stopping_ = false;
+    std::shared_ptr<void> sourceLease_;
 };
 

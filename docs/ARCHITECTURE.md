@@ -1,5 +1,15 @@
 # 架構與長期路線
 
+## 0.7.0 連續閱讀與 EPUB
+
+- `EpubBook`：miniz 3.1.2 ZIP + Windows XmlLite；背景依 container → OPF manifest/spine → XHTML/SVG 圖片參照讀取，僅將支援的點陣圖寫入 GUID 專屬暫存目錄。URI 正規化、CRC、重複 ZIP 路徑及解壓縮大小檢查；XmlLite 外部 resolver 為空且限制實體展開。
+- `FolderModel`：同時提供資料夾自然排序或 EPUB 書內順序；失敗開啟不會清除目前內容。EPUB 頁面保留原始路徑標籤。
+- `ContinuousLayout`：以頁寬為單位保存每頁比例與 prefix offsets，二分尋找可見頁。尺寸在背景解碼後更新時，保存上緣頁碼及頁內比例，避免跳頁。
+- `ContinuousReader`：可見區附近預讀、Win32 捲軸、分段 Direct2D 上傳；只保留可見 tiles，GPU tile 快取限 96 MiB；此模式為 SDR。
+- `ImageCache`：768 MiB 硬快取預算；失敗不會反覆重試。排程 Task 保留 EPUB 的 shared lifetime lease，確保切書時仍在工作的解碼器不會讀到已被刪除的暫存檔。
+- EPUB 載入使用單一背景 future，可取消／被新開啟取代；成功後才提交至主視窗。主視窗輪詢完成結果，不從工作執行緒操作 UI。
+- `ctest --test-dir build -C Release --output-on-failure` 執行 ReaderProbe、ImageIoProbe、ReaderUiProbe。最後者是隱藏視窗的應用程式內部整合測試，不注入全域輸入、不改使用者設定。
+
 ## 當前資料流
 
 ```text
@@ -13,7 +23,7 @@ ImageCache 依目前頁面距離排定優先順序
       │
       ├── WIC 背景解碼（最多 4 張並行）
       ├── 768 MB LRU RAM 快取
-      └── 前後各 8 張固定保留
+      └── 前後各 8 張預讀；只優先保留目前及緊鄰頁
       │
       ▼
 UI 執行緒上傳目前 BGRA 圖片至 Direct2D bitmap

@@ -1,5 +1,12 @@
 # 第三方軟體告知
 
+## miniz 3.1.2
+
+EPUB ZIP reading uses miniz 3.1.2 from https://github.com/richgel999/miniz/tree/3.1.2.
+Vendored source is in `third_party/miniz`; the unmodified upstream license is
+`third_party/miniz/LICENSE`, included in binary distributions as `LICENSES/miniz-LICENSE.txt`.
+EPUB ZIP 讀取使用 miniz；完整 MIT 授權隨原始碼及發行包附上。
+
 ## NVIDIA RTX Video SDK 1.1
 
 EinzigViewer 的可選 RTX 增強功能使用 NVIDIA RTX Video SDK 1.1／NGX VSR 與 TrueHDR。

@@ -4,7 +4,21 @@
 
 EinzigViewer is a native Windows image viewer designed for enlarging comic text, linework, and general images, with integrated NVIDIA RTX Video VSR and HDR. VSR is super-resolution enhancement, not content restoration: it cannot reconstruct details that do not exist in the source, but it is often especially helpful for small text, screentones, and edges in low-resolution comics. After opening an image, EinzigViewer automatically indexes the same folder, applies natural filename sorting, and pre-decodes the eight neighboring images in each direction.
 
-Current version: **0.6.0 with high-precision HDR JPEG XR → SDR PNG export, image downscaling, and integrated RTX Video VSR/HDR presentation**.
+Current version: **0.7.0: gap-free continuous vertical reading, EPUB image reading, tiled tall-image rendering, and cache reliability improvements**. HDR JPEG XR to SDR PNG, downscaling, and single-page RTX VSR/HDR remain available.
+
+## 0.7.0: Continuous reading and EPUB
+
+Press **V**, or choose View / right-click → Continuous vertical reading (no gaps). Images fit the reading width and join edge to edge. Wheel and precision touchpad input scroll continuously; drag to pan and Ctrl+wheel to zoom. Up/Down move a little; Page Up/Page Down/Space scroll about one screen; Shift+Space scrolls upward. Left/Right jump between images, and Home/End reach the beginning/bottom. Press 1/2/3 to return to single-page display. The reading mode is remembered.
+
+Open or drop an `.epub` to load it in the background and automatically enter continuous mode. Images follow the EPUB spine and their order within each chapter, including XHTML `img` and raster images in SVG wrappers. Repeated page appearances are preserved; filenames do not reorder the book. Esc cancels import, and opening another file supersedes it. Failed imports preserve the current content. No external resources are fetched and no scripts execute.
+
+The information bar identifies the image at the top of the viewport. Ctrl+S / Ctrl+Shift+S export or downscale that page as PNG. Extracted images live in a unique temporary directory per book, removed after switching books once in-flight decoders release it, or on normal exit.
+
+Continuous reading currently uses **SDR** and needs no NVIDIA GPU. R/H return to single-page RTX VSR/HDR; V returns from RTX to continuous SDR with a notice. Multi-page HDR composition is not implemented yet.
+
+The decoded cache has a hard 768 MiB budget and prioritizes visible pages. An additional 96 MiB Direct2D tile cache uploads only visible sections of tall images. These budgets exclude active decoding buffers and the current displayed image. Failed images are not repeatedly retried while scrolling; reopening retries them. Individual decode buffers are limited to 512 MiB to reject excessive dimensions.
+
+EPUB support is for images, without text/CSS layout, vector-only SVG, or DRM decryption. Font obfuscation does not block image reading. ZIP limits: 50,000 entries, 256 MiB unpacked per entry, 4 GiB total. Unsupported books produce an error. Reading order follows [W3C EPUB 3.3](https://www.w3.org/TR/epub-33/).
 
 > **Project rename:** Starting with 0.6.0, the project is renamed from Eidolyx to **EinzigViewer**; version 0.4.4 and earlier used MiraView. *Einzig* means unique in German, and Viewer describes the application's purpose. When no new settings file exists, the first launch imports settings from Eidolyx and then MiraView; settings are subsequently saved to `%LOCALAPPDATA%\EinzigViewer\settings.ini`.
 
@@ -20,7 +34,7 @@ Current version: **0.6.0 with high-precision HDR JPEG XR → SDR PNG export, ima
 - Windows logical natural sorting: `1, 2, 3, 10` instead of `1, 10, 2, 3`.
 - Four background image-decoding workers.
 - Direction-aware prefetching of eight images before and after the current image, prioritizing the next image.
-- 768 MB LRU memory cache with the current and neighboring images pinned.
+- A hard 768 MiB LRU decoded-image cache, prioritizing the current pages while still reclaiming entries over budget.
 - Obsolete queued work is discarded during rapid navigation, keeping the current image at the highest priority.
 - Direct2D rendering, fit-to-window, fit-to-width, 100% view, mouse panning, and cursor-centered zooming.
 - Native Windows menu bar (File, Navigate, View, RTX, and Help), context menu, and drag-and-drop opening.
@@ -48,7 +62,7 @@ Current version: **0.6.0 with high-precision HDR JPEG XR → SDR PNG export, ima
 
 ## Running EinzigViewer
 
-Download `EinzigViewer-0.6.0-win-x64.zip` from [GitHub Releases](https://github.com/akaJooooooker/EinzigViewer/releases/latest), extract the complete archive, and run `EinzigViewer.exe`. Keep `nvngx_vsr.dll` and `nvngx_truehdr.dll` next to the executable for RTX features; v0.6.0 does not require a separate HDR helper executable. The archive also contains a bilingual `README.txt`.
+Download `EinzigViewer-0.7.0-win-x64.zip` from [GitHub Releases](https://github.com/akaJooooooker/EinzigViewer/releases/latest), extract the complete archive, and run `EinzigViewer.exe`. Keep `nvngx_vsr.dll` and `nvngx_truehdr.dll` next to the executable for RTX features. The archive also contains a bilingual `README.txt`.
 
 The locally built Release executable is located at:
 
@@ -66,7 +80,8 @@ Launch it and drag an image into the window, or pass an image path as the first 
 
 | Input | Action |
 |---|---|
-| `O` | Open an image |
+| `O` | Open an image or EPUB |
+| `V` | Toggle gap-free continuous vertical reading; wheel input scrolls in this mode |
 | `Ctrl+S` | Export at the original size as a standard sRGB PNG; HDR JPEG XR is tone-mapped to SDR first |
 | `Ctrl+Shift+S` | Enter a target long edge, preserve the aspect ratio, and export a downscaled PNG |
 | `←` / `Page Up` / `Backspace` | Previous image |
@@ -128,6 +143,8 @@ When configuration succeeds, CMake prints `EinzigViewer RTX backend: enabled` an
 You may also open the folder or `CMakeLists.txt` directly in Visual Studio.
 
 ## Current Limitations
+
+- Continuous reading is SDR; RTX VSR/HDR uses single-page mode. EPUB support displays images, without text/CSS layout, vector-only SVG, or DRM decryption.
 
 - GIF and animated WebP currently display only their first frame.
 - WebP, HEIC, AVIF, and JPEG XL support depends on installed Windows WIC codecs.
