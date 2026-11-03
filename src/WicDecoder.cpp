@@ -1,4 +1,5 @@
 #include "WicDecoder.h"
+#include "ImageFingerprint.h"
 
 #include <Windows.h>
 #include <wincodec.h>
@@ -87,9 +88,9 @@ bool IsExtendedRgbFormat(const WICPixelFormatGUID& format) {
 
 bool ValidateDimensions(
     const UINT width, const UINT height, const std::uint64_t bytesPerPixel,
-    std::uint64_t& stride, std::uint64_t& size, HRESULT& result) {
+    std::uint64_t& stride, std::uint64_t& size, HRESULT& result,
+    const std::uint64_t maximumDecodeBytes) {
     stride = static_cast<std::uint64_t>(width) * bytesPerPixel;
-    constexpr std::uint64_t maximumDecodeBytes = 512ULL * 1024 * 1024;
     if (width == 0 || height == 0 ||
         stride > maximumDecodeBytes || height > maximumDecodeBytes / stride) {
         result = WINCODEC_ERR_IMAGESIZEOUTOFRANGE;
@@ -123,7 +124,8 @@ HRESULT DecodeExtendedJpegXr(
     IWICImagingFactory* factory,
     IWICBitmapSource* source,
     const std::wstring& path,
-    std::shared_ptr<ImageData>& image) {
+    std::shared_ptr<ImageData>& image,
+    const std::uint64_t maximumDecodeBytes) {
     ComPtr<IWICFormatConverter> converter;
     HRESULT result = factory->CreateFormatConverter(&converter);
     if (SUCCEEDED(result)) {
@@ -138,7 +140,7 @@ HRESULT DecodeExtendedJpegXr(
 
     std::uint64_t floatStride = 0;
     std::uint64_t floatSize = 0;
-    if (SUCCEEDED(result)) ValidateDimensions(width, height, 16ULL, floatStride, floatSize, result);
+    if (SUCCEEDED(result)) ValidateDimensions(width, height, 16ULL, floatStride, floatSize, result, maximumDecodeBytes);
 
     std::vector<float> linearPixels;
     if (SUCCEEDED(result)) {
@@ -164,7 +166,7 @@ HRESULT DecodeExtendedJpegXr(
 
     std::uint64_t outputStride = 0;
     std::uint64_t outputSize = 0;
-    if (!ValidateDimensions(width, height, 4ULL, outputStride, outputSize, result)) return result;
+    if (!ValidateDimensions(width, height, 4ULL, outputStride, outputSize, result, maximumDecodeBytes)) return result;
 
     try {
         image = std::make_shared<ImageData>();
@@ -223,7 +225,8 @@ HRESULT DecodeStandard(
     IWICBitmapSource* source,
     const std::wstring& path,
     const bool jpegXr,
-    std::shared_ptr<ImageData>& image) {
+    std::shared_ptr<ImageData>& image,
+    const std::uint64_t maximumDecodeBytes) {
     ComPtr<IWICFormatConverter> converter;
     HRESULT result = factory->CreateFormatConverter(&converter);
     if (SUCCEEDED(result)) {
@@ -238,7 +241,7 @@ HRESULT DecodeStandard(
 
     std::uint64_t stride = 0;
     std::uint64_t size = 0;
-    if (SUCCEEDED(result)) ValidateDimensions(width, height, 4ULL, stride, size, result);
+    if (SUCCEEDED(result)) ValidateDimensions(width, height, 4ULL, stride, size, result, maximumDecodeBytes);
 
     if (SUCCEEDED(result)) {
         try {
@@ -260,7 +263,8 @@ HRESULT DecodeStandard(
 }
 }
 
-std::shared_ptr<ImageData> WicDecoder::Decode(const std::wstring& path, std::wstring& error) {
+std::shared_ptr<ImageData> WicDecoder::Decode(const std::wstring& path, std::wstring& error,
+    const std::uint64_t maximumDecodeBytes) {
     error.clear();
     const HRESULT comResult = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     struct ComScope { HRESULT result; ~ComScope() { if (SUCCEEDED(result)) CoUninitialize(); } } scope{comResult};
@@ -294,16 +298,21 @@ std::shared_ptr<ImageData> WicDecoder::Decode(const std::wstring& path, std::wst
     }
 
     std::shared_ptr<ImageData> image;
+    const auto budget=std::min<std::uint64_t>(maximumDecodeBytes,1024ULL*1024*1024);
     const bool jpegXr = IsJpegXr(path);
     if (SUCCEEDED(result) && jpegXr && IsExtendedRgbFormat(sourceFormat)) {
-        result = DecodeExtendedJpegXr(factory.Get(), source.Get(), path, image);
+        result = DecodeExtendedJpegXr(factory.Get(), source.Get(), path, image, budget);
     } else if (SUCCEEDED(result)) {
-        result = DecodeStandard(factory.Get(), source.Get(), path, jpegXr, image);
+        result = DecodeStandard(factory.Get(), source.Get(), path, jpegXr, image, budget);
     }
 
     if (FAILED(result)) {
         image.reset();
         error = HResultMessage(result);
+    }
+    if(image) {
+        try { image->sourceFingerprint=ComputeImageFingerprint(*image); }
+        catch(...) { /* Fingerprint failure must not prevent ordinary reading. */ }
     }
     return image;
 }

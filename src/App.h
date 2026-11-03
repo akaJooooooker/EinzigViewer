@@ -5,6 +5,8 @@
 #include "ImageCache.h"
 #include "ImageEnhancer.h"
 #include "ContinuousLayout.h"
+#include "UpdateChecker.h"
+#include "AiManager.h"
 #if EINZIGVIEWER_WITH_RTX
 #include "RtxHdrPresenter.h"
 #endif
@@ -15,11 +17,13 @@
 #include <wrl/client.h>
 
 #include <filesystem>
+#include <functional>
 #include <atomic>
 #include <memory>
 #include <string>
 #include <future>
 #include <map>
+#include <set>
 #include <tuple>
 
 enum class ViewMode : int {
@@ -41,6 +45,13 @@ enum class UiLanguage : int {
 class App {
 #ifdef EINZIGVIEWER_TESTING
     friend struct ReaderUiTest;
+    friend struct UpdateUiTest;
+    friend struct AiUiTest;
+    std::function<bool(const ImageData&,std::wstring&)> clipboardWriterForTest_;
+    ai::Executor aiExecutorForTest_;
+    ai::ResourceProbe aiResourceProbeForTest_;
+    ai::BatchExecutor aiBatchExecutorForTest_;
+    std::filesystem::path settingsPathForTest_;
 #endif
 public:
     App();
@@ -65,11 +76,27 @@ private:
     void DrawOverlay(const D2D1_SIZE_F& size);
 
     void ShowOpenDialog();
+    void RotateCurrentPage(int delta);
+    void CopyCurrentImage();
+    bool WriteClipboardImage(const ImageData& image);
+    void BeginRegionCopy();
+    void CancelRegionCopy();
+    void FinishRegionCopy(POINT point);
+    void DrawRegionSelection();
+    bool selectingRegion_ = false;
+    bool regionDragging_ = false;
+    RECT regionViewport_{};
+    POINT regionStart_{},regionEnd_{};
+    std::shared_ptr<ImageData> regionSnapshot_;
+    std::vector<RECT> regionMissing_;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> regionBitmap_;
+    std::map<std::wstring,int> pageRotations_;
     void StartBookOpen(const std::filesystem::path& file);
     void PollBookOpen();
     void ResetDocument();
     void SetContinuous(bool enabled);
     void DrawContinuous(const D2D1_SIZE_F& size);
+    void DrawContinuousInto(ID2D1RenderTarget* target,const D2D1_SIZE_F& size);
     void RefreshContinuous();
     void ScrollContinuous(double delta);
     void JumpContinuous(std::size_t index, bool bottom = false);
@@ -77,6 +104,7 @@ private:
     [[nodiscard]] D2D1_SIZE_F ReaderSize() const;
     [[nodiscard]] double ReaderWidth() const;
     [[nodiscard]] double ReaderHeight() const;
+    void ResetReaderSizingReference();
     void ShowExportPngDialog(bool resize);
     bool OpenImage(const std::filesystem::path& file);
     void Navigate(int delta);
@@ -86,6 +114,19 @@ private:
     void RequestEnhancement();
     void ApplyEnhancementResult();
     void ToggleEnhancement();
+    void ToggleAi();
+    void ShowAiResourceSettings();
+    bool ApplyAiResourceSettings(const ai::UserLimits& limits);
+    void SetAiScale(int scale);
+    void ResetAiDocument();
+    void RefreshAiRequests();
+    void RefreshAiDocument();
+    void UpdateAiDisplayImages(const std::vector<ai::Request>& desired);
+    void ApplyAiResult();
+    [[nodiscard]] std::wstring AiKey(std::size_t index) const;
+    [[nodiscard]] std::wstring AiStatus() const;
+    [[nodiscard]] std::shared_ptr<ImageData> AiDisplayImage(std::size_t index,
+        const std::shared_ptr<ImageData>& original) const;
     void ToggleHdrMode();
     void DisableHdrMode(bool restoreSdrBackend = true);
     void SetHdrPreset(int preset);
@@ -113,6 +154,11 @@ private:
     void UpdateWindowTitle();
     void LoadSettings();
     void SaveSettings() const;
+    void StartUpdateCheck(bool manual);
+    void PollUpdateCheck();
+    enum class UpdateField { Automatic, LastCheck, SkippedVersion, All };
+    void SaveUpdateSettings(UpdateField field = UpdateField::All) const;
+    void LoadUpdateSettings();
     [[nodiscard]] std::filesystem::path SettingsPath() const;
 
     HWND window_ = nullptr;
@@ -121,8 +167,16 @@ private:
     HMENU viewMenu_ = nullptr;
     HMENU wheelMenu_ = nullptr;
     HMENU rtxMenu_ = nullptr;
+    HMENU aiMenu_ = nullptr;
     HMENU hdrPresetMenu_ = nullptr;
     HMENU languageMenu_ = nullptr;
+    HMENU helpMenu_ = nullptr;
+    updates::Edition edition_ = updates::Edition::Installed;
+    bool automaticUpdates_ = true;
+    bool updateManual_ = false;
+    std::int64_t lastUpdateCheck_ = 0;
+    std::wstring skippedUpdate_;
+    std::shared_ptr<updates::Job> updateJob_;
     FolderModel folder_;
     ImageCache cache_;
     std::unique_ptr<ImageEnhancer> enhancer_;
@@ -133,6 +187,15 @@ private:
 #endif
     std::shared_ptr<ImageData> currentImage_;
     std::shared_ptr<ImageData> enhancedImage_;
+    std::unique_ptr<ai::Manager> aiManager_;
+    ai::UserLimits aiUserLimits_;
+    bool aiEnabled_ = false;
+    bool aiDocumentDirty_ = true;
+    int aiScale_ = 2;
+    std::uint64_t aiDocumentGeneration_ = 0;
+    std::wstring aiLastError_;
+    struct AiDisplayedPage { std::weak_ptr<ImageData> source; std::shared_ptr<ImageData> image; };
+    std::map<std::wstring,AiDisplayedPage> aiDisplayedPages_;
 
     Microsoft::WRL::ComPtr<ID2D1Factory> d2dFactory_;
     Microsoft::WRL::ComPtr<IDWriteFactory> writeFactory_;
@@ -175,13 +238,18 @@ private:
     double dragScrollOrigin_ = 0;
     int wheelRemainder_ = 0;
     float readerZoom_ = 1.0F;
+    ViewMode readerViewMode_ = ViewMode::FitWindow;
+    std::size_t readerSizingPage_ = SIZE_MAX;
+    unsigned readerSourceWidth_ = 0;
+    unsigned readerSourceHeight_ = 0;
     float readerPanX_ = 0;
     std::size_t requestedFirst_ = SIZE_MAX;
     std::size_t requestedLast_ = SIZE_MAX;
     std::map<std::tuple<std::size_t, unsigned, unsigned>, Microsoft::WRL::ComPtr<ID2D1Bitmap>> readerTiles_;
+    std::map<std::size_t,std::weak_ptr<ImageData>> readerTileSources_;
+    std::map<std::size_t,unsigned> readerTileBorders_;
     struct BookOpenResult { std::shared_ptr<EpubBook> book; std::wstring error; };
     std::future<BookOpenResult> bookFuture_;
     std::shared_ptr<std::atomic_bool> bookCancelled_;
     std::filesystem::path pendingBook_;
 };
-

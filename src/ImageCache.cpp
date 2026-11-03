@@ -1,6 +1,7 @@
 #include "ImageCache.h"
 
 #include "WicDecoder.h"
+#include "ImageRotation.h"
 
 #include <algorithm>
 
@@ -36,9 +37,31 @@ void ImageCache::Request(const std::wstring& path, const int priority) {
         if (cache_.contains(path) || pending_.contains(path) || errors_.contains(path)) return;
         pending_.insert(path);
         errors_.erase(path);
-        tasks_.push(Task{path, priority, sequence_++, sourceLease_});
+        tasks_.push(Task{path, priority, sequence_++, sourceLease_, prepare_});
     }
     condition_.notify_one();
+}
+
+void ImageCache::RetryFailed(const std::wstring& path,const int priority) {
+    {
+        std::scoped_lock lock(mutex_);
+        if(!errors_.contains(path) || cache_.contains(path) || pending_.contains(path))return;
+        errors_.erase(path);
+        pending_.insert(path);
+        tasks_.push(Task{path,priority,sequence_++,sourceLease_,prepare_});
+    }
+    condition_.notify_one();
+}
+
+void ImageCache::StorePrepared(std::shared_ptr<ImageData> image) {
+    if(!image || image->path.empty() || !image->width || !image->height || image->pixels.empty())return;
+    std::scoped_lock lock(mutex_);
+    const auto path=image->path;
+    if(const auto old=cache_.find(path);old!=cache_.end())currentBytes_-=old->second.image->ByteSize();
+    currentBytes_+=image->ByteSize();
+    cache_[path]=CacheEntry{std::move(image),++access_,0};
+    errors_.erase(path);
+    TrimLocked();
 }
 
 std::shared_ptr<ImageData> ImageCache::TryGet(const std::wstring& path) {
@@ -49,10 +72,11 @@ std::shared_ptr<ImageData> ImageCache::TryGet(const std::wstring& path) {
     return found->second.image;
 }
 
-void ImageCache::SetSourceLease(std::shared_ptr<void> lease) {
+void ImageCache::SetSourceLease(std::shared_ptr<void> lease, Preparation prepare) {
     ClearQueued();
     std::scoped_lock lock(mutex_);
     sourceLease_ = std::move(lease);
+    prepare_ = std::move(prepare);
     errors_.clear();
 }
 
@@ -82,6 +106,21 @@ std::size_t ImageCache::CurrentBytes() const {
     return currentBytes_;
 }
 
+bool ImageCache::SetRotation(const std::wstring& path,const int clockwiseQuarterTurns,std::wstring& error) {
+    const int turns=(clockwiseQuarterTurns%4+4)%4;
+    std::scoped_lock lock(mutex_);
+    const auto found=cache_.find(path);
+    if(found!=cache_.end() && found->second.rotation!=turns) {
+        auto rotated=RotateImage(*found->second.image,turns-found->second.rotation,error);
+        if(!rotated)return false;
+        currentBytes_-=found->second.image->ByteSize();
+        found->second.image=std::move(rotated);found->second.rotation=turns;
+        currentBytes_+=found->second.image->ByteSize();
+    }
+    if(turns)rotations_[path]=turns;else rotations_.erase(path);
+    TrimLocked();return true;
+}
+
 void ImageCache::WorkerLoop() {
     for (;;) {
         Task task;
@@ -95,17 +134,22 @@ void ImageCache::WorkerLoop() {
 
         std::wstring error;
         std::shared_ptr<ImageData> image;
-        try { image = WicDecoder::Decode(task.path, error); }
+        try {
+            if(!task.prepare || task.prepare(task.path,error))image = WicDecoder::Decode(task.path, error);
+        }
         catch (...) { error = L"圖片解碼失敗或記憶體不足。 / Image decoding failed or ran out of memory."; }
         HWND notify = nullptr;
         {
             std::scoped_lock lock(mutex_);
             pending_.erase(task.path);
+            const auto orientation=rotations_.find(task.path);
+            const int rotation=orientation==rotations_.end()?0:orientation->second;
+            if(image && rotation)image=RotateImage(*image,rotation,error);
             if (image) {
                 const auto bytes = image->ByteSize();
                 const auto existing = cache_.find(task.path);
                 if (existing != cache_.end()) currentBytes_ -= existing->second.image->ByteSize();
-                cache_[task.path] = CacheEntry{std::move(image), ++access_};
+                cache_[task.path] = CacheEntry{std::move(image), ++access_,rotation};
                 currentBytes_ += bytes;
                 errors_.erase(task.path);
                 TrimLocked();

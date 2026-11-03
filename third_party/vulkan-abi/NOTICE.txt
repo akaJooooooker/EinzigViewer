@@ -1,0 +1,12 @@
+Vulkan resource-query ABI declarations
+
+Copyright (c) 2015-2019 The Khronos Group Inc.
+Licensed under the Apache License, Version 2.0. See LICENSE.txt.
+
+The private driver declarations in src/AiResources.cpp adapt a small subset of
+Vulkan-Headers v1.1.130, include/vulkan/vulkan_core.h:
+https://github.com/KhronosGroup/Vulkan-Headers/blob/v1.1.130/include/vulkan/vulkan_core.h
+
+Modifications: private names, grouped scalar declarations, dynamic function
+lookup and x64 ABI assertions. The Vulkan SDK and loader are not bundled;
+resource queries use the existing system driver and safely fall back when absent.

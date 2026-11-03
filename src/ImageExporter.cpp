@@ -50,7 +50,10 @@ bool ImageExporter::SavePng(
     }
 
     const HRESULT comResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    const bool uninitialize = SUCCEEDED(comResult);
+    struct ComScope {
+        HRESULT result;
+        ~ComScope() { if(SUCCEEDED(result))CoUninitialize(); }
+    } comScope{comResult};
 
     ComPtr<IWICImagingFactory> factory;
     HRESULT result = CreateFactory(factory);
@@ -131,6 +134,5 @@ bool ImageExporter::SavePng(
     if (SUCCEEDED(result)) result = encoder->Commit();
 
     if (FAILED(result)) error = HResultMessage(result);
-    if (uninitialize) CoUninitialize();
     return SUCCEEDED(result);
 }

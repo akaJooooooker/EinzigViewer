@@ -1,11 +1,26 @@
 # 第三方軟體告知
 
+## Microsoft Visual C++ Runtime
+
+Windows release packages include the x64 Visual C++ runtime DLLs from the licensed
+Visual Studio installation's redistributable directory, for app-local deployment.
+These Microsoft components retain their own license; they are not relicensed as
+EinzigViewer source. Windows 10 or newer provides the Universal CRT.
+
 ## miniz 3.1.2
 
 EPUB ZIP reading uses miniz 3.1.2 from https://github.com/richgel999/miniz/tree/3.1.2.
 Vendored source is in `third_party/miniz`; the unmodified upstream license is
 `third_party/miniz/LICENSE`, included in binary distributions as `LICENSES/miniz-LICENSE.txt`.
 EPUB ZIP 讀取使用 miniz；完整 MIT 授權隨原始碼及發行包附上。
+
+## Vulkan resource-query declarations
+
+The private resource-query ABI declarations in `src/AiResources.cpp` adapt a subset of Khronos Vulkan-Headers v1.1.130, Copyright (c) 2015-2019 The Khronos Group Inc., under Apache-2.0. Names and field grouping were changed for dynamic queries and x64 ABI checks. Retained license and modification notice are in `third_party/vulkan-abi/`. Only the existing system driver is queried; the Vulkan SDK/loader and NVML library are not bundled.
+
+## Real-CUGAN ncnn Vulkan / models-se
+
+Optional local AI uses the unmodified official Windows 20220728 Real-CUGAN ncnn Vulkan executable, its models-se no-denoise 2×/4× weights and bundled vcomp140.dll. The executable wrapper and model project use MIT licenses; these do not relicense Microsoft components. Pinned acquisition, archive SHA-256, inventory and all retained notices are documented in `third_party/realcugan/README.md`. Copies accompany the local runtime in `ai/realcugan/LICENSE` and `ai/realcugan/licenses/`. Models and binaries are fetched development assets and are not source files committed to this repository.
 
 ## NVIDIA RTX Video SDK 1.1
 

@@ -1,11 +1,12 @@
 #include <windows.h>
+#include "AppVersion.h"
 
 101 ICON "icon\\EinzigViewer.ico"
 1 RT_MANIFEST "app.manifest"
 
 1 VERSIONINFO
- FILEVERSION 0,7,0,0
- PRODUCTVERSION 0,7,0,0
+ FILEVERSION EINZIGVIEWER_VERSION_RESOURCE
+ PRODUCTVERSION EINZIGVIEWER_VERSION_RESOURCE
  FILEFLAGSMASK 0x3fL
  FILEFLAGS 0x0L
  FILEOS 0x40004L
@@ -18,11 +19,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "EinzigViewer Project\0"
             VALUE "FileDescription", "EinzigViewer EPUB and RTX Image Viewer\0"
-            VALUE "FileVersion", "0.7.0\0"
+            VALUE "FileVersion", EINZIGVIEWER_VERSION "\0"
             VALUE "InternalName", "EinzigViewer\0"
             VALUE "OriginalFilename", "EinzigViewer.exe\0"
             VALUE "ProductName", "EinzigViewer\0"
-            VALUE "ProductVersion", "0.7.0\0"
+            VALUE "ProductVersion", EINZIGVIEWER_VERSION "\0"
         END
     END
     BLOCK "VarFileInfo"

@@ -66,6 +66,15 @@ std::wstring FolderModel::Label(const std::size_t index) const {
                  : files_.at(index).filename().wstring();
 }
 
+std::shared_ptr<void> FolderModel::SourceLease() const {
+    return book_;
+}
+std::function<bool(const std::wstring&,std::wstring&)> FolderModel::Preparation(const bool) const { return {}; }
+std::wstring FolderModel::PageKey(const std::size_t index) const {
+    if(book_)return book_->source.wstring()+L"#image="+std::to_wstring(index);
+    return files_.at(index).wstring();
+}
+
 const std::filesystem::path& FolderModel::Current() const { return files_.at(index_); }
 const std::filesystem::path& FolderModel::At(const std::size_t index) const { return files_.at(index); }
 

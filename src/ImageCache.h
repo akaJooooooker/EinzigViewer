@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <functional>
 #include <mutex>
 #include <queue>
 #include <string>
@@ -28,18 +29,23 @@ public:
     ImageCache& operator=(const ImageCache&) = delete;
 
     void SetNotificationWindow(HWND window);
-    void SetSourceLease(std::shared_ptr<void> lease);
+    using Preparation = std::function<bool(const std::wstring&, std::wstring&)>;
+    void SetSourceLease(std::shared_ptr<void> lease, Preparation prepare = {});
     void Request(const std::wstring& path, int priority);
+    void RetryFailed(const std::wstring& path,int priority);
+    void StorePrepared(std::shared_ptr<ImageData> image);
     [[nodiscard]] std::shared_ptr<ImageData> TryGet(const std::wstring& path);
     [[nodiscard]] std::wstring ErrorFor(const std::wstring& path) const;
     void Pin(const std::vector<std::wstring>& paths);
     void ClearQueued();
+    bool SetRotation(const std::wstring& path,int clockwiseQuarterTurns,std::wstring& error);
     [[nodiscard]] std::size_t CurrentBytes() const;
 
 private:
     struct CacheEntry {
         std::shared_ptr<ImageData> image;
         std::uint64_t access = 0;
+        int rotation = 0;
     };
 
     struct Task {
@@ -47,6 +53,7 @@ private:
         int priority = 0;
         std::uint64_t sequence = 0;
         std::shared_ptr<void> sourceLease;
+        Preparation prepare;
     };
 
     struct TaskLess {
@@ -74,5 +81,7 @@ private:
     HWND notificationWindow_ = nullptr;
     bool stopping_ = false;
     std::shared_ptr<void> sourceLease_;
+    Preparation prepare_;
+    std::unordered_map<std::wstring,int> rotations_;
 };
 

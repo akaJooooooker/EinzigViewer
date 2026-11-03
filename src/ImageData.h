@@ -11,6 +11,8 @@ struct ImageData {
     std::uint32_t height = 0;
     std::uint32_t stride = 0;
     std::vector<std::byte> pixels;
+    // Identity of the decoded original, retained by rotations and AI outputs.
+    std::string sourceFingerprint;
     bool sourceWasJpegXr = false;
     bool hdrToneMappedToSdr = false;
 

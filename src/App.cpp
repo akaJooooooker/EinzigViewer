@@ -2,6 +2,7 @@
 
 #include "ImageExporter.h"
 #include "NullImageEnhancer.h"
+#include "AppVersion.h"
 #if EINZIGVIEWER_WITH_RTX
 #include "RtxImageEnhancer.h"
 #endif
@@ -60,7 +61,13 @@ enum Command : UINT {
     CommandLanguageChinese,
     CommandLanguageEnglish,
     CommandExit,
-    CommandContinuous
+    CommandContinuous,
+    CommandCheckUpdates,
+    CommandAutomaticUpdates,
+    CommandDefaultApps,
+    CommandRotateLeft = CommandDefaultApps + 5,CommandRotateRight,CommandRotateReset,
+    CommandCopyImage,CommandCopyRegion,
+    CommandAi,CommandAi2x,CommandAi4x,CommandAiResources
 };
 
 const wchar_t* UiText(
@@ -84,6 +91,7 @@ D2D1_RECT_F ClientRectF(const HWND window) {
 }
 
 App::App() : cache_(768ULL * 1024ULL * 1024ULL) {
+    edition_ = updates::DetectEdition(updates::ExecutableDirectory());
 #if EINZIGVIEWER_WITH_RTX
     enhancer_ = std::make_unique<RtxImageEnhancer>();
 #else
@@ -92,6 +100,7 @@ App::App() : cache_(768ULL * 1024ULL * 1024ULL) {
 }
 
 App::~App() {
+    aiManager_.reset();
     if (bookCancelled_) bookCancelled_->store(true);
     if (bookFuture_.valid()) bookFuture_.wait();
 }
@@ -111,7 +120,10 @@ int App::Run(const HINSTANCE instance, const std::filesystem::path& initialFile)
     ShowWindow(window_, SW_SHOW);
     UpdateWindow(window_);
 
-    if (!initialFile.empty()) OpenImage(initialFile);
+    if (!initialFile.empty()) {
+        OpenImage(initialFile);
+    }
+    SetTimer(window_, 6, 3000, nullptr);
 
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {
@@ -214,14 +226,20 @@ HMENU App::CreateApplicationMenu() {
     viewMenu_ = CreatePopupMenu();
     wheelMenu_ = CreatePopupMenu();
     rtxMenu_ = CreatePopupMenu();
+    aiMenu_ = CreatePopupMenu();
     hdrPresetMenu_ = CreatePopupMenu();
     HMENU helpMenu = CreatePopupMenu();
+    helpMenu_ = helpMenu;
     languageMenu_ = CreatePopupMenu();
     if (!root || !fileMenu || !navigateMenu || !viewMenu_ || !wheelMenu_ ||
-        !rtxMenu_ || !hdrPresetMenu_ || !helpMenu || !languageMenu_) return root;
+        !rtxMenu_ || !aiMenu_ || !hdrPresetMenu_ || !helpMenu || !languageMenu_) return root;
 
     AppendMenuW(fileMenu, MF_STRING, CommandOpen,
         UiText(english, L"開啟圖片／EPUB…\tO", L"Open image / EPUB…\tO"));
+    AppendMenuW(fileMenu,MF_STRING,CommandCopyImage,
+        UiText(english,L"複製目前圖片\tCtrl+C",L"Copy current image\tCtrl+C"));
+    AppendMenuW(fileMenu,MF_STRING,CommandCopyRegion,
+        UiText(english,L"框選區域複製…\tCtrl+Shift+C",L"Select region to copy…\tCtrl+Shift+C"));
     AppendMenuW(fileMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(fileMenu, MF_STRING, CommandExportPng,
         UiText(english, L"轉存 PNG…\tCtrl+S", L"Export PNG…\tCtrl+S"));
@@ -240,6 +258,7 @@ HMENU App::CreateApplicationMenu() {
         UiText(english, L"第一張\tHome", L"First\tHome"));
     AppendMenuW(navigateMenu, MF_STRING, CommandLast,
         UiText(english, L"最後一張\tEnd", L"Last\tEnd"));
+    AppendMenuW(navigateMenu,MF_SEPARATOR,0,nullptr);
 
     AppendMenuW(viewMenu_, MF_STRING, CommandFit,
         UiText(english, L"適合視窗\t1", L"Fit window\t1"));
@@ -249,6 +268,10 @@ HMENU App::CreateApplicationMenu() {
         UiText(english, L"原始大小（100%）\t3", L"Actual size (100%)\t3"));
     AppendMenuW(viewMenu_, MF_STRING, CommandContinuous,
         UiText(english, L"直式連續閱讀（無間距）\tV", L"Continuous vertical reading (no gaps)\tV"));
+    AppendMenuW(viewMenu_,MF_SEPARATOR,0,nullptr);
+    AppendMenuW(viewMenu_,MF_STRING,CommandRotateLeft,UiText(english,L"此頁向左旋轉 90°\t[",L"Rotate this page left 90°\t["));
+    AppendMenuW(viewMenu_,MF_STRING,CommandRotateRight,UiText(english,L"此頁向右旋轉 90°\t]",L"Rotate this page right 90°\t]"));
+    AppendMenuW(viewMenu_,MF_STRING,CommandRotateReset,UiText(english,L"此頁恢復原方向",L"Reset this page orientation"));
     AppendMenuW(viewMenu_, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(viewMenu_, MF_STRING, CommandMaximize,
         UiText(english, L"視窗最大化\tM", L"Maximize window\tM"));
@@ -290,10 +313,28 @@ HMENU App::CreateApplicationMenu() {
     AppendMenuW(rtxMenu_, MF_STRING | MF_DISABLED, 0,
         UiText(english, L"按住 C：顯示原圖比較", L"Hold C: Compare original"));
 
+    AppendMenuW(aiMenu_,MF_STRING,CommandAi,UiText(english,L"AI 超解析度\tA",L"AI Super Resolution\tA"));
+    AppendMenuW(aiMenu_,MF_SEPARATOR,0,nullptr);
+    AppendMenuW(aiMenu_,MF_STRING,CommandAi2x,UiText(english,L"原圖放大 2×",L"2× original resolution"));
+    AppendMenuW(aiMenu_,MF_STRING,CommandAi4x,UiText(english,L"原圖放大 4×",L"4× original resolution"));
+    AppendMenuW(aiMenu_,MF_SEPARATOR,0,nullptr);
+    AppendMenuW(aiMenu_,MF_STRING,CommandAiResources,UiText(english,L"資源設定…",L"Resource settings…"));
+    AppendMenuW(aiMenu_,MF_STRING|MF_DISABLED,0,UiText(english,L"先顯示原圖，背景完成後換圖",L"Original first; replace when ready"));
+    AppendMenuW(aiMenu_,MF_STRING|MF_DISABLED,0,UiText(english,L"按住 C 比較原圖 · 本機 SDR",L"Hold C to compare · Local SDR"));
+
     AppendMenuW(languageMenu_, MF_STRING, CommandLanguageChinese, L"繁體中文");
     AppendMenuW(languageMenu_, MF_STRING, CommandLanguageEnglish, L"English");
     AppendMenuW(helpMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(languageMenu_),
         UiText(english, L"語言", L"Language"));
+    AppendMenuW(helpMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(helpMenu, MF_STRING, CommandCheckUpdates,
+        UiText(english, L"檢查更新…", L"Check for updates…"));
+    AppendMenuW(helpMenu, MF_STRING, CommandAutomaticUpdates,
+        UiText(english, L"自動檢查更新", L"Automatically check for updates"));
+    if (edition_ == updates::Edition::Installed) {
+        AppendMenuW(helpMenu, MF_STRING, CommandDefaultApps,
+            UiText(english, L"設定預設圖片檢視器…", L"Default image viewer settings…"));
+    }
     AppendMenuW(helpMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(helpMenu, MF_STRING, CommandAbout,
         UiText(english, L"關於 EinzigViewer…", L"About EinzigViewer…"));
@@ -305,6 +346,7 @@ HMENU App::CreateApplicationMenu() {
     AppendMenuW(root, MF_POPUP, reinterpret_cast<UINT_PTR>(viewMenu_),
         UiText(english, L"檢視(&V)", L"View(&V)"));
     AppendMenuW(root, MF_POPUP, reinterpret_cast<UINT_PTR>(rtxMenu_), L"RTX(&R)");
+    AppendMenuW(root, MF_POPUP, reinterpret_cast<UINT_PTR>(aiMenu_), L"AI(&A)");
     AppendMenuW(root, MF_POPUP, reinterpret_cast<UINT_PTR>(helpMenu),
         UiText(english, L"說明(&H)", L"Help(&H)"));
     UpdateMenuChecks();
@@ -312,11 +354,16 @@ HMENU App::CreateApplicationMenu() {
 }
 
 void App::UpdateMenuChecks() {
+    if(mainMenu_) {
+    }
+    if (helpMenu_) CheckMenuItem(helpMenu_, CommandAutomaticUpdates,
+        MF_BYCOMMAND | (automaticUpdates_ ? MF_CHECKED : MF_UNCHECKED));
     if (viewMenu_) {
         CheckMenuItem(viewMenu_, CommandContinuous, MF_BYCOMMAND | (continuous_ ? MF_CHECKED : MF_UNCHECKED));
+        const auto activeMode=continuous_?readerViewMode_:viewMode_;
         CheckMenuRadioItem(viewMenu_, CommandFit, CommandActual,
-            viewMode_ == ViewMode::FitWindow ? CommandFit :
-            viewMode_ == ViewMode::FitWidth ? CommandFitWidth : CommandActual,
+            activeMode == ViewMode::FitWindow ? CommandFit :
+            activeMode == ViewMode::FitWidth ? CommandFitWidth : CommandActual,
             MF_BYCOMMAND);
         CheckMenuItem(viewMenu_, CommandFullscreen,
             MF_BYCOMMAND | (fullscreen_ ? MF_CHECKED : MF_UNCHECKED));
@@ -335,6 +382,10 @@ void App::UpdateMenuChecks() {
             MF_BYCOMMAND | (enhancementEnabled_ ? MF_CHECKED : MF_UNCHECKED));
         CheckMenuItem(rtxMenu_, CommandHdr,
             MF_BYCOMMAND | (hdrEnabled_ ? MF_CHECKED : MF_UNCHECKED));
+    }
+    if(aiMenu_) {
+        CheckMenuItem(aiMenu_,CommandAi,MF_BYCOMMAND|(aiEnabled_?MF_CHECKED:MF_UNCHECKED));
+        CheckMenuRadioItem(aiMenu_,CommandAi2x,CommandAi4x,aiScale_==4?CommandAi4x:CommandAi2x,MF_BYCOMMAND);
     }
     if (hdrPresetMenu_) {
         CheckMenuRadioItem(hdrPresetMenu_, CommandHdrStandard, CommandHdrGentle,
@@ -360,6 +411,7 @@ void App::SetLanguage(const UiLanguage language) {
     viewMenu_ = nullptr;
     wheelMenu_ = nullptr;
     rtxMenu_ = nullptr;
+    aiMenu_ = nullptr;
     hdrPresetMenu_ = nullptr;
     languageMenu_ = nullptr;
     if (oldMenu) DestroyMenu(oldMenu);
@@ -429,6 +481,7 @@ bool App::EnsureRenderTarget() {
 }
 
 void App::DiscardRenderTarget() {
+    CancelRegionCopy();
     readerTiles_.clear();
     bitmap_.Reset();
     textBrush_.Reset();
@@ -480,7 +533,9 @@ void App::Paint() {
     renderTarget_->Clear(D2D1::ColorF(0x0B0E12));
     const D2D1_SIZE_F size = renderTarget_->GetSize();
 
-    if (continuous_ && !folder_.Empty()) {
+    if(selectingRegion_) {
+        DrawRegionSelection();
+    } else if (continuous_ && !folder_.Empty()) {
         DrawContinuous(size);
     } else if (bitmap_ && currentImage_) {
         const auto destination = ImageRectangle(size);
@@ -545,13 +600,18 @@ void App::DrawOverlay(const D2D1_SIZE_F& size) {
                 static_cast<float>(std::max(1L, hdrClient.right)),
                 static_cast<float>(std::max(1L, hdrClient.bottom)));
         }
-        details << (continuous_ ? UiText(english, L"直式連續 · SDR", L"Continuous · SDR") : ViewModeName(viewMode_, english)) << L"  ·  "
-                << static_cast<int>(std::lround((continuous_ ? readerZoom_ : CurrentScale(scaleSize)) * 100.0F)) << L"%";
+        details << (continuous_ ? UiText(english, L"直式連續 · SDR", L"Continuous · SDR") : ViewModeName(viewMode_, english));
+        if(!continuous_ || (currentImage_ && currentImage_->width)) {
+            const double scale=continuous_?ReaderWidth()*GetDpiForWindow(window_)/(96.0*currentImage_->width):CurrentScale(scaleSize);
+            details << L"  ·  " << static_cast<int>(std::lround(scale*100)) << L"%";
+        }else details << (english?L"  ·  Loading…":L"  ·  載入中…");
         if (currentImage_) {
             details << L"  ·  " << currentImage_->width << L" × " << currentImage_->height;
             if (currentImage_->hdrToneMappedToSdr) details << L"  ·  JXR HDR → SDR/sRGB";
         }
-        if (hdrEnabled_) {
+        if(aiEnabled_) {
+            details << L"  ·  " << AiStatus();
+        } else if (hdrEnabled_) {
             static constexpr const wchar_t* chinesePresets[]{L"標準", L"鮮明", L"柔和"};
             static constexpr const wchar_t* englishPresets[]{L"Standard", L"Vivid", L"Gentle"};
             details << (hdrLastUsedVsr_ ? L"  ·  RTX VSR → HDR10" : L"  ·  RTX TrueHDR 10-bit");
@@ -721,6 +781,7 @@ void App::Navigate(const int delta) {
     }
     if (!folder_.Move(delta)) return;
     currentImage_.reset();
+    RefreshAiRequests();
     enhancedImage_.reset();
     showOriginalForComparison_ = false;
     ++enhancementGeneration_;
@@ -738,6 +799,7 @@ void App::NavigateTo(const std::size_t index) {
     if (continuous_) { JumpContinuous(index); return; }
     if (!folder_.MoveTo(index)) return;
     currentImage_.reset();
+    RefreshAiRequests();
     enhancedImage_.reset();
     showOriginalForComparison_ = false;
     ++enhancementGeneration_;
@@ -794,6 +856,7 @@ void App::ApplyCurrentIfReady() {
     currentImage_ = std::move(image);
     loading_ = false;
     ClampHdrZoom();
+    RefreshAiRequests();
     UploadCurrentBitmap();
     if (enhancementEnabled_) RequestEnhancement();
     InvalidateRect(window_, nullptr, FALSE);
@@ -874,6 +937,7 @@ void App::ApplyEnhancementResult() {
 }
 
 void App::ToggleEnhancement() {
+    if(aiEnabled_)ToggleAi();
     if (continuous_) {
         SetContinuous(false);
         SetNotice(UiText(IsEnglish(), L"已切換單頁模式以使用 RTX 增強。", L"Switched to single-page mode for RTX enhancement."), 5000);
@@ -921,6 +985,7 @@ void App::RecreateEnhancementBackend() {
 }
 
 void App::ToggleHdrMode() {
+    if(aiEnabled_)ToggleAi();
     if (continuous_) {
         SetContinuous(false);
         SetNotice(UiText(IsEnglish(), L"已切換單頁模式以使用 RTX HDR。", L"Switched to single-page mode for RTX HDR."), 5000);
@@ -1094,19 +1159,34 @@ void App::UploadCurrentBitmap() {
     }
 #endif
     const auto image = enhancementEnabled_ && enhancedImage_ && !showOriginalForComparison_
-        ? enhancedImage_ : currentImage_;
+        ? enhancedImage_ : AiDisplayImage(folder_.Index(),currentImage_);
     if (!renderTarget_ || !image || image->pixels.empty()) return;
     const auto properties = D2D1::BitmapProperties(
         D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
-    const HRESULT result = renderTarget_->CreateBitmap(
-        D2D1::SizeU(image->width, image->height), image->pixels.data(),
-        image->stride, properties, &bitmap_);
+    const auto upload=[&](const std::shared_ptr<ImageData>& source) {
+        if(!source || source->width>renderTarget_->GetMaximumBitmapSize() ||
+            source->height>renderTarget_->GetMaximumBitmapSize())return E_INVALIDARG;
+        return renderTarget_->CreateBitmap(D2D1::SizeU(source->width,source->height),
+            source->pixels.data(),source->stride,properties,&bitmap_);
+    };
+    HRESULT result=upload(image);
+    if(FAILED(result) && aiEnabled_ && image!=currentImage_) {
+        bitmap_.Reset();aiDisplayedPages_.erase(AiKey(folder_.Index()));
+        result=upload(currentImage_);
+        SetNotice(UiText(IsEnglish(),L"AI 圖片無法顯示，已保留原圖；可改用 2×。",
+            L"AI display failed; kept the original. Try 2×."),6000);
+    }
     if (FAILED(result)) SetNotice(UiText(IsEnglish(),
         L"無法將圖片上傳到 Direct2D。", L"The image could not be uploaded to Direct2D."), 5000);
 }
 
 void App::SetViewMode(const ViewMode mode) {
-    if (continuous_) SetContinuous(false);
+    CancelRegionCopy();
+    if (continuous_) {
+        readerViewMode_=mode;readerZoom_=1;readerPanX_=0;
+        ResetReaderSizingReference();readerTiles_.clear();
+        RefreshContinuous();UpdateMenuChecks();return;
+    }
     viewMode_ = mode;
     zoomFactor_ = 1.0F;
     pan_ = {0.0F, 0.0F};
@@ -1125,12 +1205,13 @@ void App::SetWheelBehavior(const WheelBehavior behavior) {
 }
 
 void App::ZoomAt(const float factor, const POINT clientPoint) {
+    if(!std::isfinite(factor) || factor<=0)return;
     if (continuous_) {
         const double oldWidth = ReaderWidth();
         const double dpi = static_cast<double>(GetDpiForWindow(window_)) / 96;
         const double y = std::clamp(clientPoint.y / dpi - (showInfo_ ? 48 : 0), 0.0, ReaderHeight());
         const double anchor = scrollPosition_ + y / oldWidth;
-        readerZoom_ = std::clamp(readerZoom_ * factor, 0.1F, 5.0F);
+        readerZoom_ = std::clamp(readerZoom_ * factor, 0.02F, 20.0F);
         scrollPosition_ = anchor - y / ReaderWidth();
         readerTiles_.clear();
         RefreshContinuous();
@@ -1270,6 +1351,10 @@ void App::ShowContextMenu(const POINT screenPoint) {
     }
     AppendMenuW(menu, MF_STRING, CommandOpen,
         UiText(english, L"開啟圖片／EPUB…\tO", L"Open image / EPUB…\tO"));
+    AppendMenuW(menu,MF_STRING,CommandCopyImage,
+        UiText(english,L"複製目前圖片\tCtrl+C",L"Copy current image\tCtrl+C"));
+    AppendMenuW(menu,MF_STRING,CommandCopyRegion,
+        UiText(english,L"框選區域複製…\tCtrl+Shift+C",L"Select region to copy…\tCtrl+Shift+C"));
     AppendMenuW(menu, MF_STRING, CommandExportPng,
         UiText(english, L"轉存 PNG…\tCtrl+S", L"Export PNG…\tCtrl+S"));
     AppendMenuW(menu, MF_STRING, CommandResizeExportPng,
@@ -1279,12 +1364,19 @@ void App::ShowContextMenu(const POINT screenPoint) {
         UiText(english, L"上一張\t←", L"Previous\t←"));
     AppendMenuW(menu, MF_STRING, CommandNext,
         UiText(english, L"下一張\t→", L"Next\t→"));
+    AppendMenuW(menu, MF_STRING, CommandRotateLeft,
+        UiText(english, L"此頁向左旋轉 90°\t[", L"Rotate this page left 90°\t["));
+    AppendMenuW(menu, MF_STRING, CommandRotateRight,
+        UiText(english, L"此頁向右旋轉 90°\t]", L"Rotate this page right 90°\t]"));
+    AppendMenuW(menu, MF_STRING, CommandRotateReset,
+        UiText(english, L"此頁恢復原方向", L"Reset this page orientation"));
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING | (viewMode_ == ViewMode::FitWindow ? MF_CHECKED : 0), CommandFit,
+    const auto activeMode=continuous_?readerViewMode_:viewMode_;
+    AppendMenuW(menu, MF_STRING | (activeMode == ViewMode::FitWindow ? MF_CHECKED : 0), CommandFit,
         UiText(english, L"適合視窗\t1", L"Fit window\t1"));
-    AppendMenuW(menu, MF_STRING | (viewMode_ == ViewMode::FitWidth ? MF_CHECKED : 0), CommandFitWidth,
+    AppendMenuW(menu, MF_STRING | (activeMode == ViewMode::FitWidth ? MF_CHECKED : 0), CommandFitWidth,
         UiText(english, L"適合寬度\t2", L"Fit width\t2"));
-    AppendMenuW(menu, MF_STRING | (viewMode_ == ViewMode::ActualSize ? MF_CHECKED : 0), CommandActual,
+    AppendMenuW(menu, MF_STRING | (activeMode == ViewMode::ActualSize ? MF_CHECKED : 0), CommandActual,
         UiText(english, L"原始大小\t3", L"Actual size\t3"));
     AppendMenuW(menu, MF_STRING | (continuous_ ? MF_CHECKED : 0), CommandContinuous,
         UiText(english, L"直式連續閱讀（無間距）\tV", L"Continuous vertical reading (no gaps)\tV"));
@@ -1295,6 +1387,14 @@ void App::ShowContextMenu(const POINT screenPoint) {
     AppendMenuW(menu, MF_STRING | (showInfo_ ? MF_CHECKED : 0), CommandToggleInfo,
         UiText(english, L"資訊列\tI", L"Information bar\tI"));
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu,MF_STRING|(aiEnabled_?MF_CHECKED:0),CommandAi,UiText(english,L"AI 超解析度\tA",L"AI Super Resolution\tA"));
+    HMENU aiScaleMenu=CreatePopupMenu();
+    if(aiScaleMenu) {
+        AppendMenuW(aiScaleMenu,MF_STRING|(aiScale_==2?MF_CHECKED:0),CommandAi2x,L"2×");
+        AppendMenuW(aiScaleMenu,MF_STRING|(aiScale_==4?MF_CHECKED:0),CommandAi4x,L"4×");
+        AppendMenuW(menu,MF_POPUP,reinterpret_cast<UINT_PTR>(aiScaleMenu),UiText(english,L"AI 放大倍率",L"AI scale"));
+    }
+    AppendMenuW(menu,MF_STRING,CommandAiResources,UiText(english,L"AI 資源設定…",L"AI resource settings…"));
     AppendMenuW(menu, MF_STRING | (enhancementEnabled_ ? MF_CHECKED : 0), CommandRtx,
         UiText(english, L"RTX VSR 超解析度\tR", L"RTX VSR Super Resolution\tR"));
     AppendMenuW(menu, MF_STRING | (hdrEnabled_ ? MF_CHECKED : 0), CommandHdr,
@@ -1332,7 +1432,9 @@ void App::UpdateWindowTitle() {
     std::wstring title = ProductName;
     if (!folder_.Empty()) {
         title = folder_.Label(folder_.Index());
-        if (hdrEnabled_) {
+        if(aiEnabled_) {
+            title+=L" ["+AiStatus()+L"]";
+        } else if (hdrEnabled_) {
             static constexpr const wchar_t* chinesePresets[]{L"標準", L"鮮明", L"柔和"};
             static constexpr const wchar_t* englishPresets[]{L"Standard", L"Vivid", L"Gentle"};
             title += hdrLastUsedVsr_ ? L" [RTX VSR → HDR10 · " : L" [RTX TrueHDR 10-bit · ";
@@ -1347,18 +1449,23 @@ void App::UpdateWindowTitle() {
 }
 
 std::filesystem::path App::SettingsPath() const {
+#ifdef EINZIGVIEWER_TESTING
+    if(!settingsPathForTest_.empty())return settingsPathForTest_;
+#endif
+    if (edition_ == updates::Edition::Portable)
+        return updates::SettingsFile(updates::ExecutableDirectory(), {}, edition_);
     PWSTR localAppData = nullptr;
     if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &localAppData))) return {};
     std::filesystem::path path(localAppData);
     CoTaskMemFree(localAppData);
-    return path / L"EinzigViewer" / L"settings.ini";
+    return updates::SettingsFile(updates::ExecutableDirectory(), path, edition_);
 }
 
 void App::LoadSettings() {
     auto path = SettingsPath();
     if (path.empty()) return;
     std::error_code settingsError;
-    if (!std::filesystem::exists(path, settingsError)) {
+    if (edition_ == updates::Edition::Installed && !std::filesystem::exists(path, settingsError)) {
         const auto settingsRoot = path.parent_path().parent_path();
         for (const wchar_t* legacyName : {L"Eidolyx", L"MiraView"}) {
             const auto legacyPath = settingsRoot / legacyName / L"settings.ini";
@@ -1370,11 +1477,15 @@ void App::LoadSettings() {
         }
     }
     const auto native = path.wstring();
+    aiUserLimits_=ai::ReadUserLimits(path);
+    LoadUpdateSettings();
     showInfo_ = GetPrivateProfileIntW(L"view", L"showInfo", 1, native.c_str()) != 0;
     continuous_ = GetPrivateProfileIntW(L"view", L"continuous", 0, native.c_str()) != 0;
     if (continuous_) ShowScrollBar(window_, SB_VERT, TRUE);
     const int mode = GetPrivateProfileIntW(L"view", L"mode", 0, native.c_str());
     if (mode >= 0 && mode <= 2) viewMode_ = static_cast<ViewMode>(mode);
+    const int readerMode=GetPrivateProfileIntW(L"view",L"readerMode",0,native.c_str());
+    if(readerMode>=0 && readerMode<=2)readerViewMode_=static_cast<ViewMode>(readerMode);
     const int wheel = GetPrivateProfileIntW(L"input", L"wheelBehavior", 0, native.c_str());
     if (wheel >= 0 && wheel <= 1) wheelBehavior_ = static_cast<WheelBehavior>(wheel);
     const int language = GetPrivateProfileIntW(L"ui", L"language", 0, native.c_str());
@@ -1419,6 +1530,7 @@ void App::SaveSettings() const {
     write(L"view", L"showInfo", showInfo_ ? 1 : 0);
     write(L"view", L"continuous", continuous_ ? 1 : 0);
     write(L"view", L"mode", static_cast<int>(viewMode_));
+    write(L"view",L"readerMode",static_cast<int>(readerViewMode_));
     write(L"input", L"wheelBehavior", static_cast<int>(wheelBehavior_));
     write(L"ui", L"language", static_cast<int>(language_));
     write(L"rtx", L"hdrPreset", hdrPreset_);
@@ -1462,12 +1574,15 @@ LRESULT CALLBACK App::HdrSurfaceProcedure(
 
 LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM lParam) {
     switch (message) {
+    case WM_COPY:
+        CopyCurrentImage();return 0;
     case WM_PAINT:
         Paint();
         return 0;
     case WM_ERASEBKGND:
         return 1;
     case WM_SIZE:
+        CancelRegionCopy();
         if (renderTarget_) renderTarget_->Resize(D2D1::SizeU(LOWORD(lParam), HIWORD(lParam)));
         if (continuous_ && wParam != SIZE_MINIMIZED) RefreshContinuous();
         if (hdrEnabled_) UpdateHdrSurfaceBounds();
@@ -1479,6 +1594,7 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         InvalidateRect(window_, nullptr, FALSE);
         return 0;
     case WM_DPICHANGED: {
+        CancelRegionCopy();
         if (renderTarget_) renderTarget_->SetDpi(static_cast<float>(HIWORD(wParam)), static_cast<float>(HIWORD(wParam)));
         const auto* rectangle = reinterpret_cast<RECT*>(lParam);
         SetWindowPos(window_, nullptr, rectangle->left, rectangle->top,
@@ -1493,6 +1609,9 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
     case EnhancementWorker::EnhancementReadyMessage:
         ApplyEnhancementResult();
         return 0;
+    case ai::Manager::ReadyMessage:
+        ApplyAiResult();
+        return 0;
 #if EINZIGVIEWER_WITH_RTX
     case RtxHdrPresenter::FrameReadyMessage:
         if (hdrEnabled_) InvalidateRect(window_, nullptr, FALSE);
@@ -1506,9 +1625,15 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         return 0;
     }
     case WM_LBUTTONDBLCLK:
+        if(selectingRegion_)return 0;
         ToggleFullscreen();
         return 0;
     case WM_LBUTTONDOWN:
+        if(selectingRegion_) {
+            regionStart_=regionEnd_={std::clamp(GET_X_LPARAM(lParam),static_cast<int>(regionViewport_.left),static_cast<int>(regionViewport_.right)),
+                std::clamp(GET_Y_LPARAM(lParam),static_cast<int>(regionViewport_.top),static_cast<int>(regionViewport_.bottom))};
+            regionDragging_=true;SetCapture(window_);return 0;
+        }
         dragging_ = true;
         dragOrigin_ = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
         panOrigin_ = pan_;
@@ -1516,6 +1641,15 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         SetCapture(window_);
         return 0;
     case WM_MOUSEMOVE:
+        if(selectingRegion_) {
+            SetCursor(LoadCursorW(nullptr,IDC_CROSS));
+            if(regionDragging_) {
+                regionEnd_={std::clamp(GET_X_LPARAM(lParam),static_cast<int>(regionViewport_.left),static_cast<int>(regionViewport_.right)),
+                    std::clamp(GET_Y_LPARAM(lParam),static_cast<int>(regionViewport_.top),static_cast<int>(regionViewport_.bottom))};
+                InvalidateRect(window_,nullptr,FALSE);
+            }
+            return 0;
+        }
         if (fullscreen_) ArmFullscreenCursorHide();
         else ShowFullscreenCursor();
         if (dragging_) {
@@ -1532,15 +1666,18 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         }
         return 0;
     case WM_LBUTTONUP:
+        if(selectingRegion_){FinishRegionCopy({GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam)});return 0;}
         if (dragging_) {
             dragging_ = false;
             ReleaseCapture();
         }
         return 0;
     case WM_CAPTURECHANGED:
+        if(selectingRegion_ && regionDragging_)CancelRegionCopy();
         dragging_ = false;
         return 0;
     case WM_MOUSEWHEEL: {
+        if(selectingRegion_)return 0;
         const int delta = GET_WHEEL_DELTA_WPARAM(wParam);
         const bool controlZoom = (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL) != 0;
         if (continuous_ && !controlZoom) {
@@ -1561,6 +1698,7 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         return 0;
     }
     case WM_CONTEXTMENU: {
+        if(selectingRegion_){CancelRegionCopy();return 0;}
         POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
         if (point.x == -1 && point.y == -1) {
             RECT rectangle{};
@@ -1571,12 +1709,20 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         return 0;
     }
     case WM_SETCURSOR:
+        if(selectingRegion_ && LOWORD(lParam)==HTCLIENT){SetCursor(LoadCursorW(nullptr,IDC_CROSS));return TRUE;}
         if (fullscreen_ && fullscreenCursorHidden_ && LOWORD(lParam) == HTCLIENT) {
             SetCursor(nullptr);
             return TRUE;
         }
         break;
     case WM_KEYDOWN: {
+        if(selectingRegion_) {if(wParam==VK_ESCAPE)CancelRegionCopy();return 0;}
+        if(GetKeyState(VK_CONTROL)&0x8000) {
+            if(wParam==L'C') {
+                if(GetKeyState(VK_SHIFT)&0x8000)BeginRegionCopy();else CopyCurrentImage();
+                return 0;
+            }
+        }
         if (wParam == VK_ESCAPE && bookCancelled_) {
             bookCancelled_->store(true); pendingBook_.clear(); notice_.clear();
             InvalidateRect(window_, nullptr, FALSE); return 0;
@@ -1592,6 +1738,8 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         }
         switch (wParam) {
         case L'V': SetContinuous(!continuous_); return 0;
+        case VK_OEM_4: RotateCurrentPage(-1);return 0;
+        case VK_OEM_6: RotateCurrentPage(1);return 0;
         case VK_LEFT: case VK_PRIOR: case VK_BACK: Navigate(-1); return 0;
         case VK_RIGHT: case VK_NEXT: case VK_SPACE: Navigate(1); return 0;
         case VK_HOME: if (!folder_.Empty()) NavigateTo(0); return 0;
@@ -1621,12 +1769,15 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
             InvalidateRect(window_, nullptr, FALSE);
             return 0;
         case L'R': ToggleEnhancement(); return 0;
+        case L'A': if(!(lParam&(1LL<<30)))ToggleAi(); return 0;
         case L'H': ToggleHdrMode(); return 0;
         case L'M': ToggleMaximized(); return 0;
         case L'C':
-            if (enhancementEnabled_ && enhancedImage_ && !showOriginalForComparison_) {
+            if ((aiEnabled_ || (enhancementEnabled_ && enhancedImage_)) && !showOriginalForComparison_) {
                 showOriginalForComparison_ = true;
+                readerTiles_.clear();
                 UploadCurrentBitmap();
+                UpdateWindowTitle();
                 InvalidateRect(window_, nullptr, FALSE);
             }
             return 0;
@@ -1641,17 +1792,22 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
     case WM_KEYUP:
         if (wParam == L'C' && showOriginalForComparison_) {
             showOriginalForComparison_ = false;
+            readerTiles_.clear();
             UploadCurrentBitmap();
+            UpdateWindowTitle();
             InvalidateRect(window_, nullptr, FALSE);
             return 0;
         }
         break;
     case WM_KILLFOCUS:
+        CancelRegionCopy();
         KillTimer(window_, FullscreenCursorTimer);
         ShowFullscreenCursor();
         if (showOriginalForComparison_) {
             showOriginalForComparison_ = false;
+            readerTiles_.clear();
             UploadCurrentBitmap();
+            UpdateWindowTitle();
             InvalidateRect(window_, nullptr, FALSE);
         }
         return 0;
@@ -1659,9 +1815,15 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         if (fullscreen_) ArmFullscreenCursorHide();
         return 0;
     case WM_COMMAND:
+        CancelRegionCopy();
         switch (LOWORD(wParam)) {
+        case CommandCopyImage:CopyCurrentImage();break;
+        case CommandCopyRegion:BeginRegionCopy();break;
         case CommandContinuous: SetContinuous(!continuous_); break;
         case CommandOpen: ShowOpenDialog(); break;
+        case CommandRotateLeft:RotateCurrentPage(-1);break;
+        case CommandRotateRight:RotateCurrentPage(1);break;
+        case CommandRotateReset:RotateCurrentPage(0);break;
         case CommandExportPng: ShowExportPngDialog(false); break;
         case CommandResizeExportPng: ShowExportPngDialog(true); break;
         case CommandPrevious: Navigate(-1); break;
@@ -1681,6 +1843,10 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
             InvalidateRect(window_, nullptr, FALSE);
             break;
         case CommandRtx: ToggleEnhancement(); break;
+        case CommandAi: ToggleAi(); break;
+        case CommandAi2x: SetAiScale(2); break;
+        case CommandAi4x: SetAiScale(4); break;
+        case CommandAiResources: ShowAiResourceSettings(); break;
         case CommandHdr: ToggleHdrMode(); break;
         case CommandHdrStandard: SetHdrPreset(0); break;
         case CommandHdrVivid: SetHdrPreset(1); break;
@@ -1689,9 +1855,19 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         case CommandWheelZoom: SetWheelBehavior(WheelBehavior::Zoom); break;
         case CommandLanguageChinese: SetLanguage(UiLanguage::TraditionalChinese); break;
         case CommandLanguageEnglish: SetLanguage(UiLanguage::English); break;
+        case CommandCheckUpdates: StartUpdateCheck(true); break;
+        case CommandAutomaticUpdates:
+            automaticUpdates_ = !automaticUpdates_;
+            SaveUpdateSettings(UpdateField::Automatic);
+            UpdateMenuChecks();
+            if (automaticUpdates_) StartUpdateCheck(false);
+            break;
+        case CommandDefaultApps:
+            ShellExecuteW(window_, L"open", L"ms-settings:defaultapps?registeredAppUser=EinzigViewer", nullptr, nullptr, SW_SHOWNORMAL);
+            break;
         case CommandAbout:
             MessageBoxW(window_,
-                L"EinzigViewer 0.7.0 (EPUB / RTX VSR + HDR)\n\n"
+                L"EinzigViewer " EINZIGVIEWER_VERSION_W L" (EPUB / RTX VSR + HDR)\n\n"
                 L"V：直式連續閱讀；EPUB 依章節順序讀取圖片。\n"
                 L"V: Continuous vertical reading; EPUB images in spine order.\n\n"
                 L"【繁體中文】\n"
@@ -1723,6 +1899,12 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         }
         return 0;
     case WM_TIMER:
+        if (wParam == 6) {
+            SetTimer(window_, 6, 60 * 60 * 1000, nullptr);
+            StartUpdateCheck(false);
+            return 0;
+        }
+        if (wParam == 7) { PollUpdateCheck(); return 0; }
         if (wParam == 5) { PollBookOpen(); return 0; }
         if (wParam == FullscreenCursorTimer) {
             HideFullscreenCursorIfEligible();
@@ -1774,6 +1956,11 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
         }
         break;
     case WM_DESTROY:
+        aiEnabled_=false;aiManager_.reset();
+        KillTimer(window_,9);
+        KillTimer(window_, 6);
+        KillTimer(window_, 7);
+        updateJob_.reset();
         KillTimer(window_, FullscreenCursorTimer);
         ShowFullscreenCursor();
         cache_.SetNotificationWindow(nullptr);
@@ -1793,8 +1980,10 @@ LRESULT App::HandleMessage(const UINT message, const WPARAM wParam, const LPARAM
             viewMenu_ = nullptr;
             wheelMenu_ = nullptr;
             rtxMenu_ = nullptr;
+            aiMenu_ = nullptr;
             hdrPresetMenu_ = nullptr;
             languageMenu_ = nullptr;
+            helpMenu_ = nullptr;
         }
         PostQuitMessage(0);
         return 0;

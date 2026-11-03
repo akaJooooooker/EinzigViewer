@@ -1,5 +1,7 @@
 #include "ImageExporter.h"
 #include "WicDecoder.h"
+#include "ImageFingerprint.h"
+#include "ImageRotation.h"
 
 #include <Windows.h>
 #include <wincodec.h>
@@ -75,7 +77,18 @@ bool CreateHdrJpegXr(const std::filesystem::path& path, std::wstring& error) {
 }
 
 int wmain(const int argumentCount, wchar_t** arguments) {
+    SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);
     SetConsoleOutputCP(CP_UTF8);
+    if(argumentCount>1 && std::wstring(arguments[1])==L"--uninitialized-export") {
+        const auto destination=std::filesystem::path(arguments[2]);
+        std::filesystem::create_directories(destination.parent_path());
+        ImageData image;image.width=2;image.height=2;image.stride=8;image.pixels.resize(16,std::byte{255});
+        std::wstring error;
+        if(!ImageExporter::SavePng(image,destination,0,error))return 12;
+        const auto decoded=WicDecoder::Decode(destination.wstring(),error);
+        if(!decoded || decoded->pixels!=image.pixels)return 13;
+        std::cout<<"PASS exporter owns COM until codec objects are released\n";return 0;
+    }
     const HRESULT comResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     if (FAILED(comResult)) return 1;
 
@@ -125,6 +138,30 @@ int wmain(const int argumentCount, wchar_t** arguments) {
     }
 
     const auto [minimum, maximum] = std::minmax_element(decoded->pixels.begin(), decoded->pixels.end());
+    const auto samePng=WicDecoder::Decode(pngPath.wstring(),error);
+    auto changed=*fullPng;changed.pixels[0]^=std::byte{1};
+    const auto rotated=RotateImage(*fullPng,1,error);
+    if(!samePng || fullPng->sourceFingerprint.size()!=64 ||
+        samePng->sourceFingerprint!=fullPng->sourceFingerprint ||
+        ComputeImageFingerprint(*fullPng)!=fullPng->sourceFingerprint ||
+        ComputeImageFingerprint(changed)==fullPng->sourceFingerprint ||
+        !rotated || rotated->sourceFingerprint!=fullPng->sourceFingerprint) {
+        std::wcerr << L"IMAGE_IO_PROBE_FAILED: stable content fingerprint and rotation identity\n";
+        CoUninitialize();return 10;
+    }
+    constexpr std::uint64_t pngBytes=256ULL*128*4;
+    if(!WicDecoder::Decode(pngPath.wstring(),error,pngBytes) ||
+        WicDecoder::Decode(pngPath.wstring(),error,pngBytes-1) ||
+        WicDecoder::Decode(pngPath.wstring(),error,0)) {
+        std::wcerr << L"IMAGE_IO_PROBE_FAILED: standard decode must honor caller pixel budget before allocation\n";
+        CoUninitialize();return 8;
+    }
+    constexpr std::uint64_t hdrBytes=256ULL*128*16;
+    if(!WicDecoder::Decode(jxrPath.wstring(),error,hdrBytes) ||
+        WicDecoder::Decode(jxrPath.wstring(),error,hdrBytes-1)) {
+        std::wcerr << L"IMAGE_IO_PROBE_FAILED: HDR float decode must honor caller budget before allocation\n";
+        CoUninitialize();return 9;
+    }
     if (minimum == decoded->pixels.end() || maximum == decoded->pixels.end() || *minimum == *maximum) {
         std::wcerr << L"IMAGE_IO_PROBE_FAILED: tone-mapped image has no useful range\n";
         CoUninitialize();

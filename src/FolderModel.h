@@ -6,11 +6,15 @@
 #include <vector>
 #include <memory>
 #include "EpubBook.h"
+#include <functional>
 
 class FolderModel {
 public:
     bool Open(const std::filesystem::path& selectedFile);
     void OpenBook(std::shared_ptr<EpubBook> book);
+    [[nodiscard]] std::shared_ptr<void> SourceLease() const;
+    [[nodiscard]] std::function<bool(const std::wstring&,std::wstring&)> Preparation(bool background=false) const;
+    [[nodiscard]] std::wstring PageKey(std::size_t index) const;
     [[nodiscard]] std::shared_ptr<EpubBook> Book() const { return book_; }
     [[nodiscard]] std::wstring Label(std::size_t index) const;
 

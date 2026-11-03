@@ -1,5 +1,6 @@
 /.vs/
 /build/
+/build-*/
 /out/
 /.sdk/
 /tmp/
